@@ -39,15 +39,15 @@
     <string name="playback_history_sync_pending_episode">剧集 ID %1$d</string>
     <string name="playback_history_sync_delete_pending">删除待同步项目</string>
     <string name="playback_history_sync_delete_all">删除全部待同步项目</string>
-    <string name="settings_category_app_ui">应用与界面</string>
-    <string name="settings_category_data_playback">数据源与播放</string>
-    <string name="settings_category_network_storage">网络与存储</string>
-    <string name="settings_category_others">其他</string>
+    <string name="settings_category_app_ui">个人偏好</string>
+    <string name="settings_category_data_playback">观看体验</string>
+    <string name="settings_category_network_storage">连接与储存</string>
+    <string name="settings_category_others">支持与关于</string>
     <string name="settings_debug_mode_enabled">已进入调试模式</string>
-    <string name="settings_tab_appearance">界面</string>
-    <string name="settings_tab_theme">主题与色彩</string>
-    <string name="settings_tab_player">播放器和弹幕过滤</string>
-    <string name="settings_tab_media_source">数据源管理</string>
+    <string name="settings_tab_appearance">通用</string>
+    <string name="settings_tab_theme">显示与外观</string>
+    <string name="settings_tab_player">播放与弹幕</string>
+    <string name="settings_tab_media_source">数据源</string>
     <string name="settings_tab_media_selector">观看偏好</string>
     <string name="settings_tab_danmaku">服务器区域</string>
     <string name="settings_tab_proxy">代理</string>
@@ -77,8 +77,8 @@
     <string name="settings_pikpak_recommend_apply">应用</string>
     <string name="settings_pikpak_recommend_dismiss">跳过</string>
     <string name="settings_tab_cache">自动缓存</string>
-    <string name="settings_tab_storage">存储</string>
-    <string name="settings_tab_settings_backup">设置备份</string>
+    <string name="settings_tab_storage">储存空间</string>
+    <string name="settings_tab_settings_backup">备份与恢复</string>
     <string name="settings_tab_log">日志</string>
     <string name="settings_log_open_directory">打开日志目录</string>
     <string name="settings_tab_update">软件更新</string>
@@ -323,8 +323,8 @@
     <string name="settings_oss_licenses_license">许可证</string>
 
     <!-- AppSettingsTab -->
-    <string name="settings_app_initial_page">初始页面</string>
-    <string name="settings_app_initial_page_description">启动 APP 时进入的页面</string>
+    <string name="settings_app_initial_page">启动页面</string>
+    <string name="settings_app_initial_page_description">打开 Animeko 时显示的页面</string>
     <string name="settings_app_search">搜索</string>
     <string name="settings_app_use_new_search_api">使用新版条目查询接口</string>
     <string name="settings_app_use_new_search_api_description">实验性接口，可能会缺失部分条目，谨慎启用</string>
@@ -345,8 +345,8 @@
     <string name="settings_app_use_original_title">显示原名</string>
     <string name="settings_app_use_original_title_description">在条目列表和详情页优先显示原名（通常为日文），而非中文名</string>
     <string name="settings_app_language">语言</string>
-    <string name="settings_app_language_system">系统语言</string>
-    <string name="settings_app_language_restart">重启软件生效</string>
+    <string name="settings_app_language_system">跟随系统</string>
+    <string name="settings_app_language_restart">重新打开应用后生效</string>
     <string name="settings_app_close_behavior">关闭行为</string>
     <string name="settings_app_close_behavior_exit">关闭应用</string>
     <string name="settings_app_close_behavior_minimize_to_tray">最小化到系统托盘</string>
@@ -638,11 +638,11 @@
     <string name="settings_update_popup_download_complete">下载完成</string>
 
     <!-- ExplorationScreen -->
-    <string name="exploration_title">探索</string>
+    <string name="exploration_title">发现</string>
     <string name="exploration_settings">设置</string>
     <string name="exploration_search">搜索</string>
-    <string name="exploration_trending">最高热度</string>
-    <string name="exploration_schedule">新番时间表</string>
+    <string name="exploration_trending">热门番剧</string>
+    <string name="exploration_schedule">新番日历</string>
     <string name="exploration_schedule_view_details">查看详情</string>
     <string name="exploration_schedule_episode">第 %1$s 话</string>
     <string name="exploration_schedule_episode_ep_and_sort">第 %1$s (%2$s) 话</string>
@@ -658,30 +658,30 @@
     <string name="exploration_schedule_last_weekday">上周%1$s</string>
     <string name="exploration_schedule_next_weekday">下周%1$s</string>
     <string name="exploration_continue_watching">继续观看</string>
-    <string name="exploration_recommendations">推荐</string>
+    <string name="exploration_recommendations">为你推荐</string>
     <string name="exploration_horizontal_scroll_tip">按住 Shift + 鼠标滚轮 同样可以水平滚动</string>
 
     <!-- MainScreenPage -->
     <string name="main_network_check_failed">无法连接到 Animeko 服务器, 请检查网络, 或在设置中配置代理</string>
-    <string name="main_screen_page_exploration">探索</string>
-    <string name="main_screen_page_collection">追番</string>
+    <string name="main_screen_page_exploration">发现</string>
+    <string name="main_screen_page_collection">资料库</string>
     <string name="main_screen_page_cache_management">下载</string>
 
     <!-- ThemePreferences -->
-    <string name="settings_theme_title">主题</string>
+    <string name="settings_theme_title">显示与外观</string>
     <string name="settings_theme_dynamic_colors">动态色彩</string>
     <string name="settings_theme_dynamic_colors_description">使用系统强调色</string>
-    <string name="settings_theme_high_contrast">高对比度深色主题</string>
-    <string name="settings_theme_high_contrast_description">深色模式使用纯黑背景，在 AMOLED 屏幕使用纯黑背景可以省电</string>
+    <string name="settings_theme_high_contrast">纯黑背景</string>
+    <string name="settings_theme_high_contrast_description">深色模式下使用纯黑背景</string>
     <string name="settings_theme_always_dark_episode">播放页始终使用深色主题</string>
     <string name="settings_theme_always_dark_episode_description">提供更加沉浸的播放体验</string>
     <string name="settings_theme_dynamic_subject">条目详情页使用动态主题</string>
     <string name="settings_theme_dynamic_subject_description">根据封面生成动态主题</string>
     <string name="settings_theme_animated_gradient_subject">条目详情页动态渐变背景</string>
     <string name="settings_theme_animated_gradient_subject_description">根据封面生成动态渐变背景。开启后可能导致设备发热和耗电增加</string>
-    <string name="settings_theme_frosted_glass">顶栏和导航栏毛玻璃效果</string>
-    <string name="settings_theme_frosted_glass_description">为顶栏和导航栏使用模糊的半透明背景</string>
-    <string name="settings_theme_palette">调色板</string>
+    <string name="settings_theme_frosted_glass">玻璃效果</string>
+    <string name="settings_theme_frosted_glass_description">让导航栏与内容自然融合。关闭后使用不透明背景。</string>
+    <string name="settings_theme_palette">强调色</string>
     <string name="settings_theme_mode_light">浅色</string>
     <string name="settings_theme_mode_dark">深色</string>
     <string name="settings_theme_mode_auto">自动</string>
@@ -790,8 +790,8 @@
     <string name="login_sign_in_or_sign_up">登录 / 注册</string>
     <string name="login_bind_email">绑定邮箱</string>
     <string name="login_change_email">更改邮箱</string>
-    <string name="login_email_address_title">你的邮箱地址</string>
-    <string name="login_email_address_description">我们将发送一封验证码邮件</string>
+    <string name="login_email_address_title">输入邮箱地址</string>
+    <string name="login_email_address_description">验证码将发送至此邮箱</string>
     <string name="login_email_label">邮箱</string>
     <string name="login_clear">清空</string>
     <string name="login_continue">继续</string>
@@ -923,7 +923,7 @@
     <string name="subject_collection_set">设置</string>
     <string name="subject_collection_ignore">忽略</string>
     <string name="subject_collection_syncing">正在同步</string>
-    <string name="subject_collection_page_title">追番</string>
+    <string name="subject_collection_page_title">资料库</string>
     <string name="subject_collection_move_to_watched">移至"看过"</string>
     <string name="subject_collection_uncollected">未收藏</string>
     <string name="subject_collection_guest_mode_tip">游客模式下请搜索后观看，或登录后使用收藏功能</string>
@@ -1812,6 +1812,8 @@
     <string name="video_player_screenshot_failed_no_frame">截图失败: 当前没有可截取的画面</string>
     <string name="video_player_screenshot_failed_save">截图保存失败</string>
     <string name="video_player_screenshot_failed_save_reason">截图保存失败: %1$s</string>
+    <string name="ios_navigation_back">返回</string>
+    <string name="ios_search_placeholder">搜索番剧</string>
 </resources>
 
 <!--@formatter:on-->

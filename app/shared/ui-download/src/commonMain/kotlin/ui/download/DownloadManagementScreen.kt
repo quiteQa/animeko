@@ -78,6 +78,7 @@ import me.him188.ani.app.ui.adaptive.AniListDetailPaneScaffold
 import me.him188.ani.app.ui.adaptive.AniTopAppBar
 import me.him188.ani.app.ui.adaptive.AniTopAppBarDefaults
 import me.him188.ani.app.ui.adaptive.PaneScope
+import me.him188.ani.app.ui.adaptive.TopAppBarSize
 import me.him188.ani.app.ui.download.components.DownloadFilterAndSortBar
 import me.him188.ani.app.ui.download.components.DownloadItem
 import me.him188.ani.app.ui.download.components.DownloadOverallStats
@@ -97,6 +98,7 @@ import me.him188.ani.app.ui.foundation.ProvideCompositionLocalsForPreview
 import me.him188.ani.app.ui.foundation.animation.AniAnimatedVisibility
 import me.him188.ani.app.ui.foundation.layout.AniWindowInsets
 import me.him188.ani.app.ui.foundation.layout.currentWindowAdaptiveInfo1
+import me.him188.ani.app.ui.foundation.layout.isHeightAtLeastMedium
 import me.him188.ani.app.ui.foundation.layout.paneHorizontalPadding
 import me.him188.ani.app.ui.foundation.layout.plus
 import me.him188.ani.app.ui.foundation.navigation.BackHandler
@@ -171,6 +173,7 @@ fun DownloadManagementScreen(
     modifier: Modifier = Modifier,
     navigationIcon: @Composable () -> Unit = {},
     windowInsets: WindowInsets = AniWindowInsets.forPageContent(),
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     val failedOperations by vm.operationFailures.collectAsStateWithLifecycle()
@@ -193,6 +196,7 @@ fun DownloadManagementScreen(
         modifier = modifier,
         navigationIcon = navigationIcon,
         windowInsets = windowInsets,
+        listState = listState,
         detailPaneContent = { group, selectionState ->
             // 详情栏展示的条目由 ViewModel 持有, 切换条目时上一条目的状态与选源会话随之关闭.
             LaunchedEffect(group?.subjectId) { vm.selectSubject(group?.subjectId, group?.subjectName) }
@@ -228,12 +232,12 @@ fun DownloadManagementScreen(
     modifier: Modifier = Modifier,
     navigationIcon: @Composable () -> Unit = {},
     windowInsets: WindowInsets = AniWindowInsets.forPageContent(),
+    listState: LazyListState = rememberLazyListState(),
     detailPaneContent: (@Composable PaneScope.(group: SubjectDownloadGroup?, selectionState: DownloadSelectionState) -> Unit)? = null,
 ) {
     val appBarColors = AniThemeDefaults.topAppBarColors()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
-    val listState = rememberLazyListState()
     val cacheFilterState = rememberDownloadFilterAndSortState()
     val selectionState = rememberDownloadSelectionState()
 
@@ -705,6 +709,7 @@ private fun DownloadManagementTopBar(
     } else {
         AniTopAppBar(
             title = { AniTopAppBarDefaults.Title(stringResource(Lang.main_screen_page_cache_management)) },
+            size = if (currentWindowAdaptiveInfo1().windowSizeClass.isHeightAtLeastMedium) TopAppBarSize.LARGE else TopAppBarSize.SMALL,
             navigationIcon = navigationIcon,
             actions = {
                 val enterSelectionModeText = stringResource(Lang.cache_management_enter_selection_mode)

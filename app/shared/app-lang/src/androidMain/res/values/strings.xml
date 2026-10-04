@@ -1772,6 +1772,8 @@
     <string name="video_player_screenshot_failed_no_frame">Screenshot failed: no video frame to capture</string>
     <string name="video_player_screenshot_failed_save">Screenshot could not be saved</string>
     <string name="video_player_screenshot_failed_save_reason">Screenshot could not be saved: %1$s</string>
+    <string name="ios_navigation_back">Back</string>
+    <string name="ios_search_placeholder">Search anime</string>
 </resources>
 
 <!--@formatter:on-->

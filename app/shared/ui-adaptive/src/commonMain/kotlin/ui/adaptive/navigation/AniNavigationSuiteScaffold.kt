@@ -38,7 +38,6 @@ import me.him188.ani.app.ui.foundation.layout.isWidthAtLeastExpanded
 import me.him188.ani.app.ui.foundation.layout.isWidthAtLeastMedium
 import me.him188.ani.app.ui.foundation.theme.AniThemeDefaults
 import me.him188.ani.app.ui.foundation.theme.LocalAppChromeOverlayInsets
-import me.him188.ani.app.ui.foundation.theme.isAppChromeFrostedGlassActive
 
 /**
  * @param navigationSuite use [AniNavigationSuite]
@@ -57,9 +56,8 @@ fun AniNavigationSuiteLayout(
     navigationContentColor: Color = contentColorFor(AniThemeDefaults.navigationContainerColor),
     content: @Composable () -> Unit = {},
 ) {
-    // 毛玻璃导航栏需要内容延伸到导航栏下方, 才有内容可以模糊.
-    val overlayNavigationBar = isAppChromeFrostedGlassActive() &&
-            layoutType == NavigationSuiteType.NavigationBar
+    // 悬浮导航栏覆盖内容; 页面使用完整的导航栏高度避让底部安全区域.
+    val overlayNavigationBar = layoutType == NavigationSuiteType.NavigationBar
 
     Surface(modifier = modifier, color = navigationContainerColor, contentColor = navigationContentColor) {
         val consumedInsets = when (layoutType) {

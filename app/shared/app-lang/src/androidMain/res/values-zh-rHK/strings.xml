@@ -1775,6 +1775,8 @@
     <string name="video_player_screenshot_failed_no_frame">截圖失敗: 目前沒有可擷取的畫面</string>
     <string name="video_player_screenshot_failed_save">截圖儲存失敗</string>
     <string name="video_player_screenshot_failed_save_reason">截圖儲存失敗: %1$s</string>
+    <string name="ios_navigation_back">返回</string>
+    <string name="ios_search_placeholder">搜尋番劇</string>
 </resources>
 
 <!--@formatter:on-->

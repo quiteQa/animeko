@@ -82,8 +82,8 @@ fun Modifier.appChromeFrostedGlass(
     if (!enabled) return this
 
     return hazeEffect(state = hazeState) {
-        blurRadius = 24.dp
-        tints = listOf(HazeTint(containerColor.copy(alpha = 0.8f)))
-        noiseFactor = 0.08f
+        blurRadius = 28.dp
+        tints = listOf(HazeTint(containerColor.copy(alpha = 0.68f)))
+        noiseFactor = 0.025f
     }
 }

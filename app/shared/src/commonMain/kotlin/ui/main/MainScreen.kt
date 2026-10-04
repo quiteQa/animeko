@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.verticalScroll
@@ -72,10 +73,10 @@ import me.him188.ani.app.ui.adaptive.navigation.AniNavigationSuite
 import me.him188.ani.app.ui.adaptive.navigation.AniNavigationSuiteDefaults
 import me.him188.ani.app.ui.adaptive.navigation.AniNavigationSuiteLayout
 import me.him188.ani.app.ui.bangumi.merge.BangumiConflictNotifier
-import me.him188.ani.app.ui.exploration.ExplorationPageViewModel
 import me.him188.ani.app.ui.download.DownloadManagementScreen
 import me.him188.ani.app.ui.download.DownloadManagementViewModel
 import me.him188.ani.app.ui.download.createDownloadManagementViewModel
+import me.him188.ani.app.ui.exploration.ExplorationPageViewModel
 import me.him188.ani.app.ui.exploration.ExplorationScreen
 import me.him188.ani.app.ui.foundation.LocalPlatform
 import me.him188.ani.app.ui.foundation.animation.LocalAniMotionScheme
@@ -234,6 +235,8 @@ private fun MainScreenNavigationLayout(
     val navigatorState = rememberUpdatedState(LocalNavigator.current)
     val navigator by navigatorState
 
+    val downloadListState = rememberLazyListState()
+
     AniNavigationSuiteLayout(
         navigationSuite = {
             AniNavigationSuite(
@@ -279,7 +282,7 @@ private fun MainScreenNavigationLayout(
                     item(
                         page == entry,
                         onClick = { onNavigateToPage(entry) },
-                        onDoubleClick = {
+                        onReselect = {
                             scope.launch {
                                 when (entry) {
                                     MainScreenPage.Exploration ->
@@ -290,9 +293,7 @@ private fun MainScreenNavigationLayout(
                                     MainScreenPage.Collection ->
                                         userCollectionsViewModel.state.scrollToTop()
 
-                                    MainScreenPage.CacheManagement -> {
-                                        // downloadManagementViewModel.lazyGridState.animateScrollToItem(0)
-                                    }
+                                    MainScreenPage.CacheManagement -> downloadListState.animateScrollToItem(0)
                                 }
                             }
                         },
@@ -369,6 +370,7 @@ private fun MainScreenNavigationLayout(
                         DownloadManagementScreen(
                             downloadManagementViewModel,
                             selfInfo = selfInfo,
+                            listState = downloadListState,
                             onPlay = { navigator.navigateEpisodeDetails(it.subjectId, it.episodeId) },
                             onNavigateCacheDetail = { navigator.navigateCacheDetails(it) },
                             onClickLogin = onLogin,

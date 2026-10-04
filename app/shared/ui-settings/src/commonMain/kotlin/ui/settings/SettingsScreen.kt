@@ -11,11 +11,13 @@ package me.him188.ani.app.ui.settings
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -24,14 +26,18 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.FilterList
@@ -48,7 +54,6 @@ import androidx.compose.material.icons.outlined.Update
 import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -79,11 +84,14 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -124,8 +132,8 @@ import me.him188.ani.app.ui.foundation.widgets.LocalToaster
 import me.him188.ani.app.ui.lang.Lang
 import me.him188.ani.app.ui.lang.acknowledgements
 import me.him188.ani.app.ui.lang.developer_list
-import me.him188.ani.app.ui.lang.settings_about_build_info
 import me.him188.ani.app.ui.lang.settings
+import me.him188.ani.app.ui.lang.settings_about_build_info
 import me.him188.ani.app.ui.lang.settings_account_bangumi_sync_title
 import me.him188.ani.app.ui.lang.settings_account_github_title
 import me.him188.ani.app.ui.lang.settings_acknowledgements_oss_licenses
@@ -555,21 +563,44 @@ internal fun SettingsPageLayout(
                         .fillMaxWidth()
                         .nestedScroll(listPaneTopAppBarScrollBehavior.nestedScrollConnection)
                         .verticalScroll(listPaneScrollState),
-                    drawerContainerColor = Color.Unspecified,
+                    drawerContainerColor = containerColor,
                 ) {
                     val highlightSelectedItemState = rememberUpdatedState(layoutParametersState.highlightSelectedItem)
                     val scope = remember(this, navigator, currentTab, highlightSelectedItemState) {
                         object : SettingsDrawerScope(), ColumnScope by this {
                             @Composable
                             override fun Item(item: SettingsTab) {
-                                NavigationDrawerItem(
-                                    icon = { Icon(getIcon(item), contentDescription = null) },
-                                    label = { Text(getName(item)) },
-                                    selected = item == currentTab() && highlightSelectedItemState.value,
-                                    onClick = {
-                                        onSelectedTab(item)
-                                    },
-                                )
+                                val isSelected = item == currentTab() && highlightSelectedItemState.value
+                                Surface(
+                                    onClick = { onSelectedTab(item) },
+                                    modifier = Modifier.fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 1.dp)
+                                        .semantics { selected = isSelected },
+                                    shape = MaterialTheme.shapes.small,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceContainerLow,
+                                ) {
+                                    Row(
+                                        Modifier.heightIn(min = 54.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Box(
+                                            Modifier.size(30.dp).clip(RoundedCornerShape(7.dp))
+                                                .background(MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(getIcon(item), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                                        }
+                                        Text(getName(item), Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                                        Icon(
+                                            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                                            null,
+                                            Modifier.size(20.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1066,7 +1097,8 @@ abstract class SettingsDrawerScope internal constructor() : ColumnScope {
             Modifier
                 .padding(horizontal = 16.dp)
                 .padding(top = paddingTop, bottom = 12.dp),
-            color = MaterialTheme.colorScheme.primary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }

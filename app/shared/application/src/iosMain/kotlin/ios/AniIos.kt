@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.files.SystemFileSystem
+import me.him188.ani.app.data.models.preference.UISettings
 import me.him188.ani.app.data.persistent.database.AniDatabase
 import me.him188.ani.app.data.repository.user.SettingsRepository
 import me.him188.ani.app.data.repository.user.UserRepository
@@ -102,6 +104,7 @@ import me.him188.ani.utils.logging.logger
 import me.him188.ani.utils.platform.annotations.TestOnly
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
+import org.koin.mp.KoinPlatform
 import org.openani.mediamp.MediampPlayerFactory
 import org.openani.mediamp.ffmpeg.FFmpegKit
 import platform.AVFAudio.AVAudioSession
@@ -266,7 +269,9 @@ private fun initializeIosFfmpegRuntime() {
 @Suppress("FunctionName", "unused") // used in Swift
 fun MainViewController(app: AniIosApplication): UIViewController {
     val contentViewController = ComposeUIViewController {
-        ProvideIosResourceEnvironment {
+        val settings = remember { KoinPlatform.getKoin().get<SettingsRepository>() }
+        val uiSettings by settings.uiSettings.flow.collectAsState(initial = UISettings.Default)
+        ProvideIosResourceEnvironment(appLanguage = uiSettings.appLanguage) {
             CompositionLocalProvider(
                 LocalOnBackPressedDispatcherOwner provides app.onBackPressedDispatcherOwner,
                 LocalContext provides app.context,

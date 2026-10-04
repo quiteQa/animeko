@@ -70,7 +70,9 @@ import me.him188.ani.app.navigation.SubjectDetailPlaceholder
 import me.him188.ani.app.ui.adaptive.AniTopAppBar
 import me.him188.ani.app.ui.adaptive.AniTopAppBarDefaults
 import me.him188.ani.app.ui.adaptive.HorizontalScrollControlScaffoldOnDesktop
+import me.him188.ani.app.ui.adaptive.IosSearchField
 import me.him188.ani.app.ui.adaptive.NavTitleHeader
+import me.him188.ani.app.ui.adaptive.TopAppBarSize
 import me.him188.ani.app.ui.exploration.followed.FollowedSubjectsDefaults
 import me.him188.ani.app.ui.exploration.followed.FollowedSubjectsLazyRow
 import me.him188.ani.app.ui.exploration.recommend.RecommendationDefaults
@@ -158,8 +160,10 @@ fun ExplorationScreen(
     windowInsets: WindowInsets = AniWindowInsets.forPageContent(),
 ) {
     val isHeightAtLeastMedium = currentWindowAdaptiveInfo1().windowSizeClass.isHeightAtLeastMedium
-    val scrollBehavior = if (LocalPlatform.current.hasScrollingBug() || isHeightAtLeastMedium) {
+    val scrollBehavior = if (LocalPlatform.current.hasScrollingBug()) {
         TopAppBarDefaults.pinnedScrollBehavior()
+    } else if (isHeightAtLeastMedium) {
+        TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     } else {
         // 在紧凑高度时收起 Top bar
         TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -193,13 +197,10 @@ fun ExplorationScreen(
                         Icon(Icons.Rounded.Search, stringResource(Lang.exploration_search))
                     }
                 },
-                searchBar = {
-                    IconButton(onSearch) {
-                        Icon(Icons.Rounded.Search, stringResource(Lang.exploration_search))
-                    }
-                },
+                searchBar = { IosSearchField(onSearch) },
                 windowInsets = AniWindowInsets.forTopAppBarWithoutDesktopTitle(),
                 scrollBehavior = scrollBehavior,
+                size = if (isHeightAtLeastMedium) TopAppBarSize.LARGE else TopAppBarSize.SMALL,
             )
         },
         contentWindowInsets = windowInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
@@ -219,6 +220,7 @@ fun ExplorationScreen(
         val recommendationPagerLoadError by recommendationPager.rememberLoadErrorState()
         val aniMotionScheme = LocalAniMotionScheme.current
         val layoutParams = RecommendationDefaults.layoutParameters()
+        val showInlineSearch = !currentWindowAdaptiveInfo1().windowSizeClass.isWidthAtLeastMedium
         LazyVerticalGrid(
             layoutParams.gridCells,
             Modifier
@@ -236,6 +238,11 @@ fun ExplorationScreen(
             horizontalArrangement = layoutParams.horizontalArrangement,
             verticalArrangement = layoutParams.verticalArrangement,
         ) {
+            if (showInlineSearch) {
+                item(key = "search", span = { GridItemSpan(maxLineSpan) }) {
+                    IosSearchField(onSearch, Modifier.padding(bottom = 8.dp))
+                }
+            }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
                     NavTitleHeader(

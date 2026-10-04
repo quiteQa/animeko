@@ -9,24 +9,21 @@
 
 package me.him188.ani.app.ui.settings.tabs.app
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.text.intl.Locale
 import me.him188.ani.app.data.models.preference.PlayerKernelConfig
 import me.him188.ani.app.data.models.preference.UISettings
 import me.him188.ani.app.data.models.preference.VideoScaffoldConfig
 import me.him188.ani.app.ui.lang.Lang
+import me.him188.ani.app.ui.lang.SupportedLocales
+import me.him188.ani.app.ui.lang.renderLocale
 import me.him188.ani.app.ui.lang.settings_app_language
 import me.him188.ani.app.ui.settings.framework.SettingsState
-import me.him188.ani.app.ui.settings.framework.components.RowButtonItem
+import me.him188.ani.app.ui.settings.framework.components.DropdownItem
 import me.him188.ani.app.ui.settings.framework.components.SettingsScope
 import org.jetbrains.compose.resources.stringResource
-import platform.Foundation.NSURL
-import platform.UIKit.UIApplication
-import platform.UIKit.UIApplicationOpenSettingsURLString
 
 @Composable
 internal actual fun SettingsScope.AppSettingsTabPlatform() {
@@ -41,34 +38,16 @@ internal actual fun SettingsScope.PlayerGroupPlatform(
     // NOOP
 }
 
-@Suppress("UNUSED_PARAMETER")
 @Composable
 internal actual fun SettingsScope.LanguageSettingsPlatform(
     state: SettingsState<UISettings>,
 ) {
-    RowButtonItem(
-        onClick = {
-            val url = NSURL.URLWithString(UIApplicationOpenSettingsURLString)!!
-            val app = UIApplication.sharedApplication
-            if (app.canOpenURL(url)) {
-                app.openURL(
-                    url,
-                    options = emptyMap<_, Any?>(),
-                    completionHandler = { _ ->
-                        // ignored
-                    },
-                )
-            }
-        },
+    val uiSettings by state
+    DropdownItem(
+        selected = { uiSettings.appLanguage },
+        values = { listOf<Locale?>(null) + SupportedLocales },
+        itemText = { Text(renderLocale(it)) },
+        onSelect = { state.update(uiSettings.copy(appLanguage = it)) },
         title = { Text(stringResource(Lang.settings_app_language)) },
-        icon = {
-            Icon(
-                Icons.Outlined.Language,
-                contentDescription = null,
-            )
-        },
-        action = {
-            Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null)
-        },
     )
 }
