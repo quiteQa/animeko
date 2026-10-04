@@ -4,7 +4,7 @@
 
 流程需要仓库启用 GitHub Actions，允许 checkout、setup-java、Gradle 及 artifact 官方 Actions，并允许发布 job 使用 `contents: write`。它不需要 Apple Distribution 证书。
 
-`release/ios26` 分支的代码推送触发构建与发布。也可以从该分支手动运行 `iOS IPA Release`。Actions 的手动运行入口需要该 workflow 已存在于默认分支。
+`release/ios26` 分支的代码推送触发构建与发布。启用 Actions 后，可向该分支提交创建 `ios26-build-*` 标签来触发首次构建。也可以从该分支手动运行 `iOS IPA Release`。Actions 的手动运行入口需要该 workflow 已存在于默认分支。
 
 依次执行 CocoaPods 初始化、Kotlin/Native Release 编译、Xcode 设备 archive、IPA 打包、完整性及 arm64 检查，然后上传 IPA 和 SHA-256 校验文件到 GitHub Releases。构建失败时不会创建发行版。
 

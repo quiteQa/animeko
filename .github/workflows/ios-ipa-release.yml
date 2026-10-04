@@ -4,6 +4,7 @@ name: iOS IPA Release
 on:
   push:
     branches: [release/ios26]
+    tags: ['ios26-build-*']
     paths-ignore: ['**/*.md']
   workflow_dispatch:
 
