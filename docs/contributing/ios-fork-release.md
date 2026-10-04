@@ -8,7 +8,7 @@
 
 依次执行 CocoaPods 初始化、Kotlin/Native Release 编译、Xcode 设备 archive、IPA 打包、完整性及 arm64 检查，然后上传 IPA 和 SHA-256 校验文件到 GitHub Releases。构建失败时不会创建发行版。
 
-资源同步先使用 Compose 的 `compose.ios.resources.platform=iphoneos` 和 `compose.ios.resources.archs=arm64` 参数预检查。Kotlin/Native Release 框架随后在单独的 Gradle 调用中编译和链接，使用 10 GiB JVM 堆内存及单 worker；立即检查 arm64 并打包为 tar.gz artifact 保存，保留执行权限和符号链接。CocoaPods 框架同步、Xcode archive 与 IPA 打包使用 2 GiB 的 Gradle 调用，明确排除已完成的 Native 链接任务。设备平台、arm64 架构和 Release 配置保持一致；`OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES` 使 Kotlin 的 CocoaPods 脚本跳过重复构建。Gradle 依赖缓存允许该发布分支写入。
+资源同步先使用 Compose 的 `compose.ios.resources.platform=iphoneos` 和 `compose.ios.resources.archs=arm64` 参数预检查。Kotlin/Native Release 框架随后在单独的 Gradle 调用中编译和链接，使用 10 GiB JVM 堆内存及单 worker；立即打包为 tar.gz artifact 保存，保留执行权限和符号链接，再检查 arm64。CocoaPods 框架同步、Xcode archive 与 IPA 打包使用 2 GiB 的 Gradle 调用，明确排除已完成的 Native 链接任务。设备平台、arm64 架构和 Release 配置保持一致；`OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES` 使 Kotlin 的 CocoaPods 脚本跳过重复构建。Gradle 依赖缓存允许该发布分支写入。
 
 流程的版本由 `RELEASE_VERSION`、`package.version`、`ios.version.code` 和 `RELEASE_TAG` 指定。发布下一版时需要同时更新这四项。已有 Release 不会被覆盖。标签以 `ios26-` 开头，不触发上游的 `v*` 全平台发布流程。
 

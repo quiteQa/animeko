@@ -102,7 +102,6 @@ jobs:
         run: |
           framework=app/shared/application/build/bin/iosArm64/podReleaseFramework/application.framework/application
           test -s "$framework"
-          lipo -verify_arch arm64 "$framework"
           tar -czf "$RUNNER_TEMP/optimized-ios-framework.tar.gz" \
             app/shared/application/build/bin/iosArm64/podReleaseFramework
       - uses: actions/upload-artifact@v4
@@ -111,6 +110,9 @@ jobs:
           path: ${{ runner.temp }}/optimized-ios-framework.tar.gz
           if-no-files-found: error
           retention-days: 14
+      - name: Verify optimized framework architecture
+        run: |
+          lipo app/shared/application/build/bin/iosArm64/podReleaseFramework/application.framework/application -verify_arch arm64
       - name: Sync optimized framework for CocoaPods
         run: |
           ./gradlew :app:shared:application:syncFramework \
@@ -143,7 +145,7 @@ jobs:
           set -euo pipefail
           python3 ci-helper/verify-release-ipa.py app/ios/build/archives/release/Animeko.ipa
           archive_app=app/ios/build/archives/release/Animeko.xcarchive/Products/Applications/Animeko.app
-          lipo -verify_arch arm64 "$archive_app/Animeko"
+          lipo "$archive_app/Animeko" -verify_arch arm64
           mkdir -p dist
           cp app/ios/build/archives/release/Animeko.ipa "dist/animeko-$RELEASE_VERSION.ipa"
           cd dist
