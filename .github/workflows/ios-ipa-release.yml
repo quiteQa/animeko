@@ -32,6 +32,8 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: Configure iOS build
         run: |
           set -euo pipefail
@@ -51,13 +53,19 @@ jobs:
             '-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process \
             -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
-      - name: Build Release IPA
+      - name: Link optimized iOS framework
+        run: |
+          ./gradlew :app:shared:application:linkPodReleaseFrameworkIosArm64 \
+            --no-configuration-cache --no-daemon --max-workers=1 --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx10g -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
+      - name: Archive and package Release IPA
         run: |
           ./gradlew :app:ios:buildReleaseIpa \
             --no-configuration-cache --no-daemon --max-workers=1 --stacktrace \
             '-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process \
-            -Pkotlin.native.jvmArgs=-Xmx10g \
             -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
       - name: Validate and prepare release assets
         run: |

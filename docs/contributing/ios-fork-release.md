@@ -8,6 +8,8 @@
 
 依次执行 CocoaPods 初始化、Kotlin/Native Release 编译、Xcode 设备 archive、IPA 打包、完整性及 arm64 检查，然后上传 IPA 和 SHA-256 校验文件到 GitHub Releases。构建失败时不会创建发行版。
 
+Kotlin/Native 框架链接在单独的 Gradle 调用中运行，使用 10 GiB JVM 堆内存及单 worker。该进程结束后，Xcode archive 与 IPA 打包在 2 GiB 的 Gradle 调用中复用已链接的框架，使编译器与 Xcode 的内存使用分属两个阶段。Gradle 依赖缓存允许该发布分支写入。
+
 流程的版本由 `RELEASE_VERSION`、`package.version`、`ios.version.code` 和 `RELEASE_TAG` 指定。发布下一版时需要同时更新这四项。已有 Release 不会被覆盖。标签以 `ios26-` 开头，不触发上游的 `v*` 全平台发布流程。
 
 IPA 使用 ad-hoc 占位签名，用户通过 SideStore 或 AltStore 使用自己的 Apple 账号重签安装。App Store/TestFlight 分发需要专用 bundle ID、Apple Developer 成员资格、证书及 provisioning profile，使用项目的 `buildSignedReleaseIpa` 流程。
