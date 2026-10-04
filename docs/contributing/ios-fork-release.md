@@ -8,9 +8,11 @@
 
 依次执行 CocoaPods 初始化、Kotlin/Native Release 编译、Xcode 设备 archive、IPA 打包、完整性及 arm64 检查，然后上传 IPA 和 SHA-256 校验文件到 GitHub Releases。构建失败时不会创建发行版。
 
-Kotlin/Native 框架链接在单独的 Gradle 调用中运行，使用 10 GiB JVM 堆内存及单 worker。该进程结束后，Xcode archive 与 IPA 打包在 2 GiB 的 Gradle 调用中复用已链接的框架，使编译器与 Xcode 的内存使用分属两个阶段。Gradle 依赖缓存允许该发布分支写入。
+Kotlin/Native 框架编译、链接和 CocoaPods 框架/资源同步在单独的 Gradle 调用中运行，使用 10 GiB JVM 堆内存及单 worker。设备平台、arm64 架构和 Release 配置在同步及打包阶段保持一致。该进程结束后，Xcode archive 与 IPA 打包在 2 GiB 的 Gradle 调用中使用已同步的框架；`OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES` 使 Kotlin 的 CocoaPods 脚本跳过重复构建。优化框架打包为 tar.gz artifact 保存，保留执行权限和符号链接。Gradle 依赖缓存允许该发布分支写入。
 
 流程的版本由 `RELEASE_VERSION`、`package.version`、`ios.version.code` 和 `RELEASE_TAG` 指定。发布下一版时需要同时更新这四项。已有 Release 不会被覆盖。标签以 `ios26-` 开头，不触发上游的 `v*` 全平台发布流程。
+
+`SOURCE_COMMIT` 明确指定应用源代码版本，checkout 后建立 `release/ios26` 本地分支，以保持应用 Git 信息与编译缓存一致。Release 标签指向该源代码提交；构建 workflow 的提交通过 Actions 运行记录追溯。发布下一版时同时更新 `SOURCE_COMMIT`。
 
 构建开始时将这三个应用版本属性写入 runner 工作目录的 `gradle.properties`，使直接执行的 Gradle 任务和 CocoaPods/Xcode 启动的 Gradle 子构建使用一致版本。这个文件修改属于构建工作目录，不提交回仓库。
 
