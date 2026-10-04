@@ -44,6 +44,25 @@ jobs:
           jvm.toolchain.vendor=Eclipse Adoptium
           jvm.toolchain.version=21
           PROPERTIES
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          path = pathlib.Path('gradle.properties')
+          content = path.read_text()
+          versions = {
+              'version.name': os.environ['RELEASE_VERSION'],
+              'package.version': '5.0.0',
+              'ios.version.code': '5.0.1',
+          }
+          for key, value in versions.items():
+              content, count = re.subn(r'^' + re.escape(key) + r'=.*$', key + '=' + value,
+                                      content, flags=re.MULTILINE)
+              if count != 1:
+                  raise ValueError('Expected one property: ' + key)
+          path.write_text(content)
+          PY
           xcodebuild -version
           pod --version
       - name: Generate framework and install CocoaPods

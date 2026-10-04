@@ -12,4 +12,6 @@ Kotlin/Native 框架链接在单独的 Gradle 调用中运行，使用 10 GiB JV
 
 流程的版本由 `RELEASE_VERSION`、`package.version`、`ios.version.code` 和 `RELEASE_TAG` 指定。发布下一版时需要同时更新这四项。已有 Release 不会被覆盖。标签以 `ios26-` 开头，不触发上游的 `v*` 全平台发布流程。
 
+构建开始时将这三个应用版本属性写入 runner 工作目录的 `gradle.properties`，使直接执行的 Gradle 任务和 CocoaPods/Xcode 启动的 Gradle 子构建使用一致版本。这个文件修改属于构建工作目录，不提交回仓库。
+
 IPA 使用 ad-hoc 占位签名，用户通过 SideStore 或 AltStore 使用自己的 Apple 账号重签安装。App Store/TestFlight 分发需要专用 bundle ID、Apple Developer 成员资格、证书及 provisioning profile，使用项目的 `buildSignedReleaseIpa` 流程。
