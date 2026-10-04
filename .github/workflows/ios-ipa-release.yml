@@ -80,9 +80,17 @@ jobs:
             '-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process \
             -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
+      - name: Check and sync device resources
+        run: |
+          ./gradlew :app:shared:application:syncPodComposeResourcesForIos \
+            --no-configuration-cache --no-daemon --max-workers=1 --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            -Pcompose.ios.resources.platform=iphoneos -Pcompose.ios.resources.archs=arm64 \
+            -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
       - name: Link optimized iOS framework
         run: |
-          ./gradlew :app:shared:application:syncFramework :app:shared:application:syncPodComposeResourcesForIos \
+          ./gradlew :app:shared:application:linkPodReleaseFrameworkIosArm64 \
             --no-configuration-cache --no-daemon --max-workers=1 --stacktrace \
             '-Dorg.gradle.jvmargs=-Xmx10g -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process \
@@ -92,27 +100,43 @@ jobs:
             -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
       - name: Preserve optimized framework
         run: |
-          test -s app/shared/application/build/cocoapods/framework/application.framework/application
+          framework=app/shared/application/build/bin/iosArm64/podReleaseFramework/application.framework/application
+          test -s "$framework"
+          lipo -verify_arch arm64 "$framework"
           tar -czf "$RUNNER_TEMP/optimized-ios-framework.tar.gz" \
-            app/shared/application/build/bin/iosArm64/podReleaseFramework \
-            app/shared/application/build/cocoapods/framework
+            app/shared/application/build/bin/iosArm64/podReleaseFramework
       - uses: actions/upload-artifact@v4
         with:
           name: optimized-ios-framework
           path: ${{ runner.temp }}/optimized-ios-framework.tar.gz
           if-no-files-found: error
           retention-days: 14
-      - name: Archive and package Release IPA
-        env:
-          OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED: 'YES'
+      - name: Sync optimized framework for CocoaPods
         run: |
-          ./gradlew :app:ios:buildReleaseIpa \
+          ./gradlew :app:shared:application:syncFramework \
+            -x :app:shared:application:linkPodReleaseFrameworkIosArm64 \
             --no-configuration-cache --no-daemon --max-workers=1 --stacktrace \
             '-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
             -Pkotlin.compiler.execution.strategy=in-process \
             -Pkotlin.native.cocoapods.platform=iphoneos \
             -Pkotlin.native.cocoapods.archs=arm64 \
             -Pkotlin.native.cocoapods.configuration=Release \
+            -Pcompose.ios.resources.platform=iphoneos -Pcompose.ios.resources.archs=arm64 \
+            -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
+          test -s app/shared/application/build/cocoapods/framework/application.framework/application
+      - name: Archive and package Release IPA
+        env:
+          OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED: 'YES'
+        run: |
+          ./gradlew :app:ios:buildReleaseIpa \
+            -x :app:shared:application:linkPodReleaseFrameworkIosArm64 \
+            --no-configuration-cache --no-daemon --max-workers=1 --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            -Pkotlin.native.cocoapods.platform=iphoneos \
+            -Pkotlin.native.cocoapods.archs=arm64 \
+            -Pkotlin.native.cocoapods.configuration=Release \
+            -Pcompose.ios.resources.platform=iphoneos -Pcompose.ios.resources.archs=arm64 \
             -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
       - name: Validate and prepare release assets
         run: |
