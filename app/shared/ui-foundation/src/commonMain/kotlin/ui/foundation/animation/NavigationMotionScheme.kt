@@ -11,6 +11,7 @@ package me.him188.ani.app.ui.foundation.animation
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,8 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.staticCompositionLocalOf
-import me.him188.ani.app.ui.foundation.theme.EasingDurations
-import kotlin.math.roundToInt
+import androidx.compose.ui.unit.IntOffset
 
 /**
  * @see AniMotionScheme
@@ -38,70 +38,20 @@ data class NavigationMotionScheme(
         inline val current
             @Composable get() = LocalNavigationMotionScheme.current
 
-        // https://m3.material.io/styles/motion/easing-and-duration/applying-easing-and-duration#e5b958f0-435d-4e84-aed4-8d1ea395fa5c
-        private const val enterDuration = EasingDurations.emphasizedDecelerate
-        private const val exitDuration = EasingDurations.emphasizedAccelerate
-
-        // https://m3.material.io/styles/motion/easing-and-duration/applying-easing-and-duration#26a169fb-caf3-445e-8267-4f1254e3e8bb
-        // https://developer.android.com/develop/ui/compose/animation/shared-elements
-        private val enterEasing = EmphasizedDecelerateEasing
-        private val exitEasing = EmphasizedAccelerateEasing
-
         fun calculate(useSlide: Boolean): NavigationMotionScheme {
-            val slideInMargin = 1f / 16
-            val slideOutMargin = 1f / 16
-
-            val enterTransition: EnterTransition = run {
-                if (useSlide) {
-                    val delay = exitDuration
-                    val slideIn = slideInHorizontally(
-                        tween(enterDuration, delayMillis = delay, easing = enterEasing),
-                        initialOffsetX = { (it * slideInMargin).roundToInt() },
-                    )
-                    val fadeIn = fadeIn(tween(enterDuration, delayMillis = exitDuration, easing = enterEasing))
-                    slideIn.plus(fadeIn)
-                } else {
-                    fadeIn(tween(enterDuration, delayMillis = exitDuration, easing = enterEasing))
-                }
+            if (!useSlide) {
+                return NavigationMotionScheme(
+                    enterTransition = fadeIn(tween(180)),
+                    exitTransition = fadeOut(tween(180)),
+                    popEnterTransition = fadeIn(tween(180)),
+                    popExitTransition = fadeOut(tween(180)),
+                )
             }
-
-            val exitTransition: ExitTransition = kotlin.run {
-                val fadeOut = fadeOut(tween(exitDuration, easing = exitEasing))
-                if (useSlide) {
-                    slideOutHorizontally(
-                        tween(exitDuration, easing = exitEasing),
-                        targetOffsetX = { -(it * slideOutMargin).roundToInt() },
-                    ).plus(fadeOut)
-                } else {
-                    fadeOut
-                }
-            }
-
-            val popEnterTransition = run {
-                val fadeIn = fadeIn(tween(enterDuration, delayMillis = exitDuration, easing = enterEasing))
-                if (useSlide) {
-                    slideInHorizontally(
-                        tween(enterDuration, delayMillis = exitDuration, easing = enterEasing),
-                        initialOffsetX = { -(it * slideInMargin).roundToInt() },
-                    ) + fadeIn
-                } else {
-                    fadeIn // clean fade
-                }
-            }
-
-            // 从页面 A 回到上一个页面 B, 切走页面 A 的动画
-            val popExitTransition: ExitTransition = run {
-                val fadeOut = fadeOut(tween(exitDuration, easing = exitEasing))
-                if (useSlide) {
-                    val slide = slideOutHorizontally(
-                        tween(exitDuration, easing = exitEasing),
-                        targetOffsetX = { (it * slideOutMargin).roundToInt() },
-                    )
-                    slide.plus(fadeOut)
-                } else {
-                    fadeOut
-                }
-            }
+            val animation = tween<IntOffset>(durationMillis = 350, easing = CubicBezierEasing(0.22f, 0.8f, 0.25f, 1f))
+            val enterTransition = slideInHorizontally(animation, initialOffsetX = { it })
+            val exitTransition = slideOutHorizontally(animation, targetOffsetX = { -it / 3 }) + fadeOut(tween(350))
+            val popEnterTransition = slideInHorizontally(animation, initialOffsetX = { -it / 3 }) + fadeIn(tween(350))
+            val popExitTransition = slideOutHorizontally(animation, targetOffsetX = { it })
 
             return NavigationMotionScheme(
                 enterTransition = enterTransition,

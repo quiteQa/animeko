@@ -10,10 +10,13 @@
 package me.him188.ani.app.ui.settings.framework.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import me.him188.ani.app.ui.settings.SettingsTab
 
@@ -75,15 +78,22 @@ fun SettingsScope.SwitchItem(
     enabled: Boolean = true,
 ) {
     SwitchItem(
-        { if (enabled) onCheckedChange(!checked) },
-        title,
-        modifier,
-        description,
+        title = title,
+        modifier = modifier.clickable(enabled = enabled) { if (enabled) onCheckedChange(!checked) },
+        description = description,
     ) {
         Switch(
             checked,
             onCheckedChange = onCheckedChange,
             enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedTrackColor = Color(0xFF34C759),
+                checkedThumbColor = Color.White,
+                checkedBorderColor = Color.Transparent,
+                uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                uncheckedThumbColor = Color.White,
+                uncheckedBorderColor = Color.Transparent,
+            ),
         )
     }
 }

@@ -18,27 +18,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.text.intl.Locale
 import org.jetbrains.compose.resources.ComposeEnvironment
 import org.jetbrains.compose.resources.InternalResourceApi
+import org.jetbrains.compose.resources.LanguageQualifier
 import org.jetbrains.compose.resources.LocalComposeEnvironment
 import org.jetbrains.compose.resources.RegionQualifier
 import org.jetbrains.compose.resources.ResourceEnvironment
+import org.jetbrains.compose.resources.ScriptQualifier
 import org.jetbrains.compose.resources.rememberResourceEnvironment
 
 /**
- * Preserves the explicitly selected Chinese script when Compose resolves resources on iOS.
+ * Applies the app language preference and preserves the selected Chinese script on iOS.
  *
  * Compose Multiplatform 1.10 only considers language and region resource qualifiers. iOS can report
  * locales such as `zh-Hans-SG` and `zh-Hant-SG`, so selecting a region-only Singapore resource would
  * otherwise make both locales use the same script.
  */
 @Composable
-internal fun ProvideIosResourceEnvironment(content: @Composable () -> Unit) {
+internal fun ProvideIosResourceEnvironment(
+    appLanguage: Locale? = null,
+    content: @Composable () -> Unit,
+) {
     val defaultEnvironment = rememberResourceEnvironment()
-    val locale = Locale.current
+    val locale = appLanguage ?: Locale.current
     val resourceRegion = locale.resourceRegion()
-    val resourceEnvironment = remember(defaultEnvironment, resourceRegion) {
+    val resourceEnvironment = remember(defaultEnvironment, appLanguage, resourceRegion) {
         ResourceEnvironment(
-            language = defaultEnvironment.language,
-            script = defaultEnvironment.script,
+            language = appLanguage?.let { LanguageQualifier(it.language) } ?: defaultEnvironment.language,
+            script = appLanguage?.let { ScriptQualifier(it.script) } ?: defaultEnvironment.script,
             region = RegionQualifier(resourceRegion),
             theme = defaultEnvironment.theme,
             density = defaultEnvironment.density,

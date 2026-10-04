@@ -24,7 +24,7 @@ sealed interface NavigationSuiteScope {
     fun item(
         selected: Boolean,
         onClick: () -> Unit,
-        onDoubleClick: (() -> Unit)? = null,
+        onReselect: (() -> Unit)? = null,
         icon: @Composable () -> Unit,
         modifier: Modifier = Modifier,
         enabled: Boolean = true,
@@ -48,7 +48,7 @@ internal interface NavigationSuiteItemProvider {
 internal class NavigationSuiteItem(
     val selected: Boolean,
     val onClick: () -> Unit,
-    val onDoubleClick: (() -> Unit)?,
+    val onReselect: (() -> Unit)?,
     val icon: @Composable () -> Unit,
     val modifier: Modifier,
     val enabled: Boolean,
@@ -64,7 +64,7 @@ private class NavigationSuiteScopeImpl : NavigationSuiteScope, NavigationSuiteIt
     override fun item(
         selected: Boolean,
         onClick: () -> Unit,
-        onDoubleClick: (() -> Unit)?,
+        onReselect: (() -> Unit)?,
         icon: @Composable () -> Unit,
         modifier: Modifier,
         enabled: Boolean,
@@ -78,7 +78,7 @@ private class NavigationSuiteScopeImpl : NavigationSuiteScope, NavigationSuiteIt
             NavigationSuiteItem(
                 selected = selected,
                 onClick = onClick,
-                onDoubleClick = onDoubleClick,
+                onReselect = onReselect,
                 icon = icon,
                 modifier = modifier,
                 enabled = enabled,
@@ -106,4 +106,10 @@ internal fun rememberStateOfItems(
     return remember {
         derivedStateOf { NavigationSuiteScopeImpl().apply(latestContent.value) }
     }
+}
+
+/** 再次选择当前标签时执行页面的返回顶部动作. */
+internal fun NavigationSuiteItem.activate() {
+    if (!enabled) return
+    if (selected && onReselect != null) onReselect() else onClick()
 }

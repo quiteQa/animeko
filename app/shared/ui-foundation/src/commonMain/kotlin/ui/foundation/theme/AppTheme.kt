@@ -86,7 +86,11 @@ fun AniTheme(
         DarkMode.DARK -> true
         DarkMode.AUTO -> isSystemInDarkThemeDetected()
     }
-    val colorScheme = appColorScheme(isDark = isDark)
+    val colorScheme = iosColorScheme(
+        base = appColorScheme(isDark = isDark),
+        isDark = isDark,
+        useBlackBackground = LocalThemeSettings.current.useBlackBackground,
+    )
     // 深色主题直接复用当前配色; 浅色主题需额外生成一套, 界面上没有取用方时这次生成是多余的,
     // 换来的是取用方不再按列表项各自生成.
     val darkOnSurface = if (isDark) colorScheme.onSurface else appColorScheme(isDark = true).onSurface
@@ -94,7 +98,8 @@ fun AniTheme(
     CompositionLocalProvider(LocalDarkOnSurface provides darkOnSurface) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = MaterialTheme.typography.copyWithPlatformFontFamily(platformFontFamily),
+            typography = MaterialTheme.typography.copyWithPlatformFontFamily(platformFontFamily).withIosTypeScale(),
+            shapes = IosShapes,
             content = content,
         )
     }

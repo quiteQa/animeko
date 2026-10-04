@@ -12,12 +12,16 @@ package me.him188.ani.app.ui.foundation.widgets
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import me.him188.ani.app.ui.lang.Lang
+import me.him188.ani.app.ui.lang.ios_navigation_back
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun BackNavigationIconButton(
@@ -29,8 +33,9 @@ fun BackNavigationIconButton(
         modifier,
     ) {
         Icon(
-            Icons.AutoMirrored.Outlined.ArrowBack,
-            null,
+            Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+            stringResource(Lang.ios_navigation_back),
+            tint = MaterialTheme.colorScheme.primary,
         )
     }
 }

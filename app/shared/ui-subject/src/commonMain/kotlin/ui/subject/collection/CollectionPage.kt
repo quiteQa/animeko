@@ -90,6 +90,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectWithLifecycle
+import kotlin.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -106,6 +107,7 @@ import me.him188.ani.app.data.repository.subject.CollectionsFilterQuery
 import me.him188.ani.app.navigation.LocalNavigator
 import me.him188.ani.app.ui.adaptive.AniTopAppBar
 import me.him188.ani.app.ui.adaptive.AniTopAppBarDefaults
+import me.him188.ani.app.ui.adaptive.TopAppBarSize
 import me.him188.ani.app.ui.foundation.LocalPlatform
 import me.him188.ani.app.ui.foundation.ifThen
 import me.him188.ani.app.ui.foundation.input.touchHorizontalScrollOnly
@@ -153,7 +155,6 @@ import me.him188.ani.utils.coroutines.flows.restartable
 import me.him188.ani.utils.platform.hasScrollingBug
 import me.him188.ani.utils.platform.isDesktop
 import org.jetbrains.compose.resources.stringResource
-import kotlin.time.Clock
 
 
 // 有顺序, https://github.com/Him188/ani/issues/73
@@ -427,7 +428,7 @@ private fun CollectionPageLayout(
     content: @Composable (nestedScrollConnection: NestedScrollConnection?, contentPadding: PaddingValues) -> Unit,
 ) {
     val isHeightAtLeastMedium = currentWindowAdaptiveInfo1().windowSizeClass.isHeightAtLeastMedium
-    val scrollBehavior = if (LocalPlatform.current.hasScrollingBug() || isHeightAtLeastMedium) {
+    val scrollBehavior = if (LocalPlatform.current.hasScrollingBug()) {
         null // Can't use PinnedBehavior, because we have a TabRow in this page, which does not sync color
     } else {
         // 在紧凑高度时收起 Top bar
@@ -478,6 +479,7 @@ private fun CollectionPageLayout(
                     },
                     windowInsets = AniWindowInsets.forTopAppBarWithoutDesktopTitle(),
                     scrollBehavior = scrollBehavior,
+                    size = if (isHeightAtLeastMedium) TopAppBarSize.LARGE else TopAppBarSize.SMALL,
                     enableFrostedGlass = false, // 由上面的 Column 统一应用
                 )
 

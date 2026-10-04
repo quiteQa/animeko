@@ -117,8 +117,8 @@ abstract class SettingsScope {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         ProvideTextStyleContentColor(
-                            MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         ) {
                             Row { title() }
                         }
@@ -145,8 +145,13 @@ abstract class SettingsScope {
                     }
                 }
 
-                // items
-                content()
+                Surface(
+                    Modifier.fillMaxWidth().padding(horizontal = itemHorizontalPadding),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
+                    Column(content = content)
+                }
             }
         }
     }
