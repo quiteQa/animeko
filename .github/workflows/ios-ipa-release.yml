@@ -1,0 +1,104 @@
+# This workflow is maintained directly, independently of src.main.kts.
+name: iOS IPA Release
+
+on:
+  push:
+    branches: [release/ios26]
+    paths-ignore: ['**/*.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ipa-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # The standard Intel runner has more memory for Kotlin/Native linking.
+    runs-on: macos-15-intel
+    timeout-minutes: 180
+    env:
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+      RELEASE_VERSION: 5.0.0-ios26.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Configure iOS build
+        run: |
+          set -euo pipefail
+          cat > local.properties <<'PROPERTIES'
+          ani.enable.ios=true
+          ani.build.framework=true
+          ani.android.abis=arm64-v8a
+          jvm.toolchain.vendor=Eclipse Adoptium
+          jvm.toolchain.version=21
+          PROPERTIES
+          xcodebuild -version
+          pod --version
+      - name: Generate framework and install CocoaPods
+        run: |
+          ./gradlew :app:shared:application:generateDummyFramework :app:ios:podInstall \
+            --no-configuration-cache --no-daemon --max-workers=1 --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
+      - name: Build Release IPA
+        run: |
+          ./gradlew :app:ios:buildReleaseIpa \
+            --no-configuration-cache --no-daemon --max-workers=1 --stacktrace \
+            '-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8' \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            -Pkotlin.native.jvmArgs=-Xmx10g \
+            -Pversion.name="$RELEASE_VERSION" -Ppackage.version=5.0.0 -Pios.version.code=5.0.1
+      - name: Validate and prepare release assets
+        run: |
+          set -euo pipefail
+          python3 ci-helper/verify-release-ipa.py app/ios/build/archives/release/Animeko.ipa
+          archive_app=app/ios/build/archives/release/Animeko.xcarchive/Products/Applications/Animeko.app
+          lipo -verify_arch arm64 "$archive_app/Animeko"
+          mkdir -p dist
+          cp app/ios/build/archives/release/Animeko.ipa "dist/animeko-$RELEASE_VERSION.ipa"
+          cd dist
+          shasum -a 256 *.ipa > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-release-ipa
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-release-ipa
+          path: dist
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_TAG: ios26-v5.0.0-1
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo '::error::Release tag already exists. Update the version and tag before publishing again.'
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_COMMIT" --title 'Animeko 5.0.0 · 中文 iOS 26 风格' \
+            --notes-file ci-helper/ios26-release-notes.md --prerelease

@@ -1,0 +1,13 @@
+# Fork 的 iOS IPA 发布
+
+`.github/workflows/ios-ipa-release.yml` 是独立维护的 iOS 发布流程。它在公开仓库的标准 GitHub 托管 `macos-15-intel` runner 上运行，仅编译 iOS Release IPA；不调用上游的自托管 runner、签名服务、AI 发布说明或云存储。标准公开仓库 Actions 用量适用 GitHub 的免费政策。
+
+流程需要仓库启用 GitHub Actions，允许 checkout、setup-java、Gradle 及 artifact 官方 Actions，并允许发布 job 使用 `contents: write`。它不需要 Apple Distribution 证书。
+
+`release/ios26` 分支的代码推送触发构建与发布。也可以从该分支手动运行 `iOS IPA Release`。Actions 的手动运行入口需要该 workflow 已存在于默认分支。
+
+依次执行 CocoaPods 初始化、Kotlin/Native Release 编译、Xcode 设备 archive、IPA 打包、完整性及 arm64 检查，然后上传 IPA 和 SHA-256 校验文件到 GitHub Releases。构建失败时不会创建发行版。
+
+流程的版本由 `RELEASE_VERSION`、`package.version`、`ios.version.code` 和 `RELEASE_TAG` 指定。发布下一版时需要同时更新这四项。已有 Release 不会被覆盖。标签以 `ios26-` 开头，不触发上游的 `v*` 全平台发布流程。
+
+IPA 使用 ad-hoc 占位签名，用户通过 SideStore 或 AltStore 使用自己的 Apple 账号重签安装。App Store/TestFlight 分发需要专用 bundle ID、Apple Developer 成员资格、证书及 provisioning profile，使用项目的 `buildSignedReleaseIpa` 流程。
