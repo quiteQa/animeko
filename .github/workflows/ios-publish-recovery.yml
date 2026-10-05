@@ -1,0 +1,59 @@
+name: Publish existing iOS IPA
+
+on:
+  push:
+    branches: [release/ipa-publish]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eb15e68b037b329b598ea206959c03f97e06c317
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-release-ipa
+          run-id: 37244207583
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify existing IPA and prepare transferable parts
+        run: |
+          set -euo pipefail
+          python3 ci-helper/verify-release-ipa.py dist/animeko-5.0.0-ios26.1.ipa
+          cd dist
+          sha256sum --check SHA256SUMS.txt
+          split --bytes=20M --numeric-suffixes --suffix-length=2 animeko-5.0.0-ios26.1.ipa ipa-part-
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-part-00
+          path: dist/ipa-part-00
+          retention-days: 2
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-part-01
+          path: dist/ipa-part-01
+          retention-days: 2
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-part-02
+          path: |
+            dist/ipa-part-02
+            dist/SHA256SUMS.txt
+          retention-days: 2
+          if-no-files-found: error
+      - name: Upload assets to existing release draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload ios26-v5.0.0-1 dist/animeko-5.0.0-ios26.1.ipa dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY"
