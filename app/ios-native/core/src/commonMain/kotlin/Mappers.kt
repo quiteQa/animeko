@@ -20,6 +20,7 @@ import me.him188.ani.app.domain.episode.AiringScheduleForDate
 import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
 import me.him188.ani.danmaku.api.DanmakuInfo
 import me.him188.ani.danmaku.api.DanmakuLocation
+import me.him188.ani.datasources.api.EpisodeType
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.PackedDate
 import me.him188.ani.datasources.api.topic.UnifiedCollectionType
@@ -27,7 +28,10 @@ import org.openani.mediamp.source.UriMediaData
 
 // app-data 类型到 facade 值类型的映射. 上游改动数据模型时, 只需要改这个文件.
 
-internal fun SubjectInfo.toAniSubject(): AniSubject = AniSubject(
+/**
+ * @param mainEpisodeCount 正片集数, 未知时为 0. `SubjectInfo.totalEpisodes` 包含 SP 与 OVA, 不使用.
+ */
+internal fun SubjectInfo.toAniSubject(mainEpisodeCount: Int = 0): AniSubject = AniSubject(
     id = subjectId,
     name = name,
     nameCn = nameCn,
@@ -35,7 +39,7 @@ internal fun SubjectInfo.toAniSubject(): AniSubject = AniSubject(
     imageUrl = imageLarge,
     summary = summary,
     airDate = airDate.toAniDateString(),
-    totalEpisodes = totalEpisodes,
+    totalEpisodes = mainEpisodeCount,
     nsfw = nsfw,
 )
 
@@ -100,8 +104,11 @@ internal fun AniCollectionType.toUnified(): UnifiedCollectionType = when (this) 
     AniCollectionType.NOT_COLLECTED -> UnifiedCollectionType.NOT_COLLECTED
 }
 
+private fun SubjectCollectionInfo.mainEpisodeCount(): Int =
+    episodes.count { it.episodeInfo.type == EpisodeType.MainStory }
+
 internal fun SubjectCollectionInfo.toAniSubjectDetail(): AniSubjectDetail = AniSubjectDetail(
-    subject = subjectInfo.toAniSubject(),
+    subject = subjectInfo.toAniSubject(mainEpisodeCount = mainEpisodeCount()),
     episodes = episodes.map { it.toAniEpisode() },
     collectionType = collectionType.toAni(),
     nextEpisodeId = progressInfo.nextEpisodeIdToPlay,
@@ -116,7 +123,7 @@ internal fun SubjectCollectionInfo.toAniCollectionItem(): AniCollectionItem {
         is ContinueWatchingStatus.Done -> AniContinueKind.COMPLETED to ""
     }
     return AniCollectionItem(
-        subject = subjectInfo.toAniSubject(),
+        subject = subjectInfo.toAniSubject(mainEpisodeCount = mainEpisodeCount()),
         collectionType = collectionType.toAni(),
         nextEpisodeId = progressInfo.nextEpisodeIdToPlay,
         continueKind = kind,
@@ -133,7 +140,6 @@ internal fun MediaSourceFetchState.toAniStateName(): String = when (this) {
     is MediaSourceFetchState.CaptchaRequired -> "CAPTCHA_REQUIRED"
     is MediaSourceFetchState.RateLimited -> "RATE_LIMITED"
     is MediaSourceFetchState.Abandoned -> "ABANDONED"
-    else -> this::class.simpleName.orEmpty().uppercase()
 }
 
 internal fun TrendingSubjectInfo.toAniSubject(): AniSubject = AniSubject(

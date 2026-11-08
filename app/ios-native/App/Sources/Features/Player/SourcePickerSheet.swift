@@ -1,12 +1,13 @@
 import AniCore
 import SwiftUI
 
-/// 选源面板. "资源" 页列出候选资源并可按偏好筛选; "数据源" 页显示每个数据源的查询状态并可重试.
+/// 选源面板. "资源" 页列出候选资源并可按偏好筛选; "手动查找" 页直接浏览数据源的条目与剧集;
+/// "数据源" 页显示每个数据源的查询状态并可重试.
 struct SourcePickerSheet: View {
     let model: PlayerModel
     @Environment(\.dismiss) private var dismiss
 
-    private enum Page: Hashable { case media, sources }
+    private enum Page: Hashable { case media, manual, sources }
     @State private var page: Page = .media
     @State private var preferredOnly = true
 
@@ -15,6 +16,7 @@ struct SourcePickerSheet: View {
             Group {
                 switch page {
                 case .media: mediaList
+                case .manual: ManualBrowsePage(player: model) { dismiss() }
                 case .sources: sourceList
                 }
             }
@@ -24,6 +26,7 @@ struct SourcePickerSheet: View {
                 ToolbarItem(placement: .principal) {
                     Picker("页面", selection: $page) {
                         Text("资源").tag(Page.media)
+                        Text("手动查找").tag(Page.manual)
                         Text("数据源").tag(Page.sources)
                     }
                     .pickerStyle(.segmented)
@@ -74,8 +77,13 @@ struct SourcePickerSheet: View {
                 Text("\(visibleCandidates.count) 个资源")
             } footer: {
                 if visibleCandidates.contains(where: { !$0.playable }) {
-                    Text("灰色的资源在 iOS 上无法播放: iOS 没有本地 BT 引擎。")
+                    Text("灰色的资源在 iOS 上无法播放。")
                 }
+            }
+            // 救援入口: 自动匹配选不出 (如名字不含集号的 OVA) 时, 手动查找是确定的出路
+            Section {
+                Button("找不到想看的? 手动查找") { page = .manual }
+                    .font(.callout)
             }
         }
         .overlay {
@@ -88,6 +96,7 @@ struct SourcePickerSheet: View {
                     if preferredOnly, !model.candidates.isEmpty {
                         Button("显示全部资源") { preferredOnly = false }
                     }
+                    Button("手动查找") { page = .manual }
                 }
             }
         }

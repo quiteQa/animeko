@@ -262,6 +262,7 @@ data class AniCommentPage(
  * @param danmakuTextConversion `ORIGINAL`, `SIMPLIFIED`, `TRADITIONAL`, `TAIWAN` 或 `HONG_KONG`.
  * @param nsfwMode `HIDE`, `BLUR` 或 `DISPLAY`.
  * @param opEdSkipSeconds 手动跳过 OP/ED 按钮一次跳过的秒数, 也是长视频自动跳过片段的长度.
+ * @param rememberManualSelection 手动查找点选剧集时是否 "记住选择", 之后每集按记住的线路自动选择.
  */
 data class AniSettings(
     val preferWebSources: Boolean,
@@ -276,11 +277,10 @@ data class AniSettings(
     val danmakuShowColor: Boolean,
     val danmakuTextConversion: String,
     val nsfwMode: String,
-    val pikpakEnabled: Boolean,
-    val pikpakUsername: String,
     val autoSkipOpEd: Boolean,
     val opEdSkipSeconds: Int,
     val autoPlayNext: Boolean,
+    val rememberManualSelection: Boolean,
 )
 
 /**
@@ -323,5 +323,73 @@ data class AniDownload(
     val canPlay: Boolean,
     val busy: Boolean,
 )
+
+// endregion
+
+// region 手动查找
+
+/**
+ * 支持浏览的数据源.
+ */
+data class AniBrowseSource(
+    val instanceId: String,
+    val mediaSourceId: String,
+    val displayName: String,
+)
+
+/**
+ * @param defaultInstanceId 默认选中的数据源: 本条目浏览记忆的源, 其次是本条目记忆的 Web 源, 否则第一个. 没有数据源时为 `null`.
+ * @param defaultKeyword 默认搜索关键字 (条目名).
+ */
+data class AniBrowseSources(
+    val sources: List<AniBrowseSource>,
+    val defaultInstanceId: String?,
+    val defaultKeyword: String,
+)
+
+/**
+ * 站点上的一个条目. [url] 是它的稳定标识.
+ */
+data class AniBrowseSubject(
+    val name: String,
+    val url: String,
+)
+
+/**
+ * 条目的一条线路. 线路按位置 ([index]) 区分, 名字可以重复或为空.
+ *
+ * @param preselectedEpisodeIndex 默认预选的剧集 (对应正在观看的一集), 只是提示; 没有时为 -1.
+ */
+data class AniBrowseChannel(
+    val index: Int,
+    val label: String,
+    val episodes: List<AniBrowseEpisode>,
+    val preselectedEpisodeIndex: Int,
+)
+
+/**
+ * @param sortHint 数据源从名称解析出的集号, 仅供展示; 解析不出为空字符串.
+ */
+data class AniBrowseEpisode(
+    val index: Int,
+    val name: String,
+    val sortHint: String,
+)
+
+/**
+ * 浏览请求失败.
+ *
+ * @param reason [REASON_CAPTCHA_UNSUPPORTED]: 站点要求验证码, iOS 无法交互验证; [REASON_FAILED]: 其他错误.
+ */
+class AniBrowseException(
+    val reason: String,
+    message: String?,
+    cause: Throwable? = null,
+) : Exception(message, cause) {
+    companion object {
+        const val REASON_CAPTCHA_UNSUPPORTED = "CAPTCHA_UNSUPPORTED"
+        const val REASON_FAILED = "FAILED"
+    }
+}
 
 // endregion

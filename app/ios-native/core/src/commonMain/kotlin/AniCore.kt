@@ -11,6 +11,7 @@ package me.him188.ani.app.iosnative.core
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.combine
@@ -78,7 +79,7 @@ class AniCore internal constructor(
     @Throws(Exception::class)
     suspend fun searchSubjects(keyword: String, offset: Int, limit: Int): List<AniSubject> {
         return searchService.searchSubjects(keyword, offset = offset, limit = limit)
-            .map { it.subjectInfo.toAniSubject() }
+            .map { it.subjectInfo.toAniSubject(mainEpisodeCount = it.mainEpisodeCount) }
     }
 
     /**
@@ -167,6 +168,7 @@ class AniCore internal constructor(
      * 流程: [AniLoginListener.onOpenUrl] 要求打开授权页 (Swift 用 `ASWebAuthenticationSession` 或系统浏览器),
      * 用户在网页完成授权后, 本方法轮询到结果并回调 [AniLoginListener.onFinished]. 取消返回的订阅即放弃登录.
      */
+    @OptIn(DelicateCoroutinesApi::class)
     fun startBangumiLogin(listener: AniLoginListener): AniSubscription {
         // ATOMIC: 即使立即取消, 也会进入函数体并通过 onFinished 报告取消
         val job: Job = scope.launch(start = CoroutineStart.ATOMIC) {

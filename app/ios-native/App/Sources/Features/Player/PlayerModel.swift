@@ -44,6 +44,11 @@ final class PlayerModel {
     private(set) var pendingSkip: AniSkipSegment?
     /// 下一集 (已播出); 没有时为 `nil`.
     private(set) var nextEpisode: AniEpisode?
+    /// 手动查找的状态, 关闭选源面板后保留.
+    let manualBrowse = ManualBrowseModel()
+
+    /// 当前剧集的 Kotlin 会话, 供手动查找使用.
+    var currentSession: AniEpisodeSession? { session }
 
     @ObservationIgnored private var core: AniCore?
     @ObservationIgnored private var settings: () -> AniSettings? = { nil }
@@ -110,6 +115,12 @@ final class PlayerModel {
             default: settings.danmakuShowFloating
             }
         }
+    }
+
+    /// 切换手动查找的 "记住选择"; 关闭时删除本条目的浏览记忆.
+    func setRememberManualSelection(_ remember: Bool) {
+        guard let session else { return }
+        Task { try? await session.setRememberManualSelection(remember: remember) }
     }
 
     func retrySource(_ source: AniMediaSourceStatus) {
@@ -269,6 +280,7 @@ final class PlayerModel {
         currentTime = 0
         duration = 0
         nextEpisode = nil
+        manualBrowse.reset()
         lastReportedAt = 0
         resetSkipState()
     }

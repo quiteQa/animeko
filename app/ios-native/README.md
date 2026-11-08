@@ -50,7 +50,9 @@ SwiftUI 视图 ── @Observable 模型 ── AVPlayer / 弹幕 CALayer      (
 1. `GetSubjectEpisodeInfoBundleFlowUseCase`: 读取条目与剧集
 2. `CreateMediaFetchSelectBundleFlowUseCase`: 创建 `MediaFetchSession` 与 `MediaSelector`, 并发查询所有启用的数据源
    (会话持续收集 `cumulativeResults`, 否则查询会中断)
-3. `MediaSelectorAutoSelectUseCase`: 按偏好, 数据源阶级与快速选择超时自动选择
+3. 与上游 `AutoSelectExtension` 相同的顺序: 本集有本地缓存则选缓存; 否则按手动查找的浏览记忆回放
+   (`ReplayBrowseMemoryUseCase`); 都没有时由 `MediaSelectorAutoSelectUseCase` 按偏好, 数据源阶级与快速选择超时自动选择.
+   在选源面板手动换源会删除本条目的浏览记忆
 4. `MediaResolver` (Koin 中 `getIosModules` 的链): 网页资源由 `IosWebMediaResolver` 在后台 `WKWebView` 中拦截视频地址,
    接口资源由 `ApiVideoMediaResolver` 签发, 直链由 `HttpStreamingMediaResolver` 处理
 5. `MediaDataProvider.open()` 得到 `UriMediaData`, 映射为 `AniPlayable` 交给 Swift
@@ -81,7 +83,10 @@ SwiftUI 视图 ── @Observable 模型 ── AVPlayer / 弹幕 CALayer      (
 
 - iOS 的网页资源解析 `IosWebMediaResolver` 使用后台 `WKWebView`, `ComposeContent()` 为空实现, 不需要 Compose 宿主.
 - `torrent:anitorrent` 的公共代码会为 iOS 编译 (`ani.kmp-library` 在 `ani.enable.ios=true` 时添加 iOS target), 但原生引擎只有
-  JVM 版本, iOS 上没有本地 BT 引擎. iOS 的 `TorrentManager` 已经接入 `PikPakEngine`.
+  JVM 版本, iOS 上没有本地 BT 引擎.
+- 上游在 iOS 上不查询 BT 数据源: `MediaSourceManager` 以 `MediaFetcherConfig(currentPlatform() != Platform.Ios)`
+  创建查询器, 查询会话直接排除 BT 源. 因此 iOS 上没有 BT 候选, PikPak 云离线也无从使用;
+  本客户端不提供 BT 列表页与 PikPak 设置, 数据源列表也不显示 BT 源. 要支持 BT 需要修改上游的这一行.
 - 上游 iOS framework 依赖 Sentry 与 onnxruntime 两个 pod (验证码识别). facade 链接 `application` 的 klib, 因此同样需要这两个 pod,
   集成方式沿用上游的 CocoaPods, 而不是单独的 XCFramework.
 
@@ -128,12 +133,13 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 | 播放 | 自动选源, 续播上次位置, 每 5 秒及暂停/退出时保存进度, 看到 90% 自动标记看过, 画中画, HLS 去广告 | 选源用例, `MediaResolver`, `EpisodePlayHistoryRepository`, `HlsPlaybackPreparer`, 标记规则同 `MarkAsWatchedExtension` |
 | OP/ED 与下一集 | 按服务器汇总的跳过点自动跳过 (开始前 5 秒提示, 可取消), 手动跳过按钮 (上报跳过点), 播完自动播放下一集, 下一集按钮; 在同一播放页内切换剧集 | `AutoSkipRepository`, 片段与跳过规则同上游 `PlayerSkipOpEdState`, 下一集规则同 `SwitchNextEpisodeExtension` |
 | 选源面板 | 全部 / 符合偏好的资源, 字幕组 · 分辨率 · 字幕 · 数据源四维偏好, 每个数据源的查询状态与重试 | `MediaSelector` 的偏好项, `MediaFetchSession` |
+| 手动查找 | 选源 (下拉), 关键字搜索 (按源缓存结果), 打开条目选线路与剧集 (预选当前集), "记住选择" 开关; 记住时之后每集按线路位置自动选择 | 数据源浏览协议, `preselectedBrowseEpisodeIndex`, `ManualBrowseMemoryRepository`, `ReplayBrowseMemoryUseCase` |
 | 弹幕 | 清理文本, 简繁转换, 正则屏蔽词, 按轨道排布 | `DanmakuRepository`, `DanmakuTextConverter`, `TimeBasedDanmakuSession.filterList` |
 | 我的 | Bangumi 授权登录 / 绑定, 退出登录 | `OAuthConfigurator`, `BangumiOAuthClient` |
 | 探索 | 热门条目, 前后 7 天的放送时间表 | `TrendsRepository`, `GetAnimeScheduleFlowUseCase` |
 | 评论 | 条目评价, 剧集评论 (Ani 与 Bangumi 合并), 登录后发表剧集评论; BBCode 转为纯文本显示 | `BangumiCommentService`, `AniEpisodeCommentService`, `utils:bbcode` |
 | 缓存管理 | 播放页一键缓存当前资源, 按条目分组的缓存列表, 暂停 / 继续 / 删除; 缓存好的剧集播放时自动优先 | `AddDownloadUseCase`, `MediaDownloadManager`, `DownloadOperations` |
-| 设置 | 选源偏好, 数据源开关, PikPak 云离线账号, HLS 去广告, 自动标记看过, 弹幕类型 / 彩色 / 文字转换 / 屏蔽词, NSFW 显示方式 | `SettingsRepository`, `MediaSourceManager`, `DanmakuRegexFilterRepository` |
+| 设置 | 选源偏好, 数据源开关, HLS 去广告, 自动标记看过, 弹幕类型 / 彩色 / 文字转换 / 屏蔽词, NSFW 显示方式 | `SettingsRepository`, `MediaSourceManager`, `DanmakuRegexFilterRepository` |
 
 设置读写的是上游 `SettingsRepository` 中的同一份数据, 语义与其他平台一致 (例如关闭 "自动标记看过" 后,
 播放会话不再标记).
@@ -145,7 +151,7 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 
 - 自动跳过 OP/ED 只用服务器汇总的跳过点, 不读取视频文件自带的章节; 也不为跳转目标预缓存 (上游经 HLS 代理预取分片),
   跳过后可能需要短暂缓冲.
-- 选源面板没有上游的 "手动查找" 与 "BT 列表" 两种模式; 需要验证码的数据源在 iOS 上无法交互 (上游 iOS 同样不支持).
+- 没有 BT 列表页 (原因见 P0 的其他发现). 需要验证码的数据源在 iOS 上无法交互验证, 手动查找会提示不支持 (上游 iOS 同样不支持).
 - 弹幕没有按来源的开关与时间偏移, 不能发送弹幕.
 - 评论只显示纯文本 (图片与表情以占位文字显示), 不支持回复, 点赞与举报.
 - 缓存只能从播放页逐集添加, 没有上游的批量选集下载.

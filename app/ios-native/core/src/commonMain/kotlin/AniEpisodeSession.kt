@@ -72,6 +72,26 @@ import me.him188.ani.datasources.api.MediaCacheMetadata
 import me.him188.ani.datasources.api.source.MediaFetchRequest
 import me.him188.ani.datasources.api.topic.UnifiedCollectionType
 import me.him188.ani.datasources.api.topic.isDoneOrDropped
+import me.him188.ani.app.data.models.episode.EpisodeInfo
+import me.him188.ani.app.data.models.subject.nameCnOrName
+import me.him188.ani.app.data.repository.media.ManualBrowseMemory
+import me.him188.ani.app.data.repository.media.ManualBrowseMemoryRepository
+import me.him188.ani.app.domain.media.fetch.awaitCompletedResults
+import me.him188.ani.app.domain.media.selector.MaybeExcludedMedia
+import me.him188.ani.app.domain.media.selector.MediaSelector
+import me.him188.ani.app.domain.media.selector.ReplayBrowseMemoryUseCase
+import me.him188.ani.app.domain.media.selector.UnsafeOriginalMediaAccess
+import me.him188.ani.app.domain.media.selector.preselectedBrowseEpisodeIndex
+import me.him188.ani.app.domain.mediasource.GetPreferredWebMediaSourceUseCase
+import me.him188.ani.app.domain.mediasource.instance.MediaSourceInstance
+import me.him188.ani.app.domain.mediasource.web.BlockReason
+import me.him188.ani.app.domain.mediasource.web.BlockedException
+import me.him188.ani.datasources.api.source.BrowseChannel
+import me.him188.ani.datasources.api.source.BrowseSubject
+import me.him188.ani.datasources.api.source.MediaSourceKind
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.seconds
 import org.koin.core.Koin
 import org.openani.mediamp.source.UriMediaData
 import kotlin.coroutines.CoroutineContext
@@ -111,6 +131,9 @@ class AniEpisodeSession internal constructor(
     private val danmakuProcessor = DanmakuProcessor()
     private val addDownload: AddDownloadUseCase = koin.get()
     private val autoSkipRepository: AutoSkipRepository = koin.get()
+    private val replayBrowseMemory: ReplayBrowseMemoryUseCase = koin.get()
+    private val manualBrowseMemory: ManualBrowseMemoryRepository = koin.get()
+    private val getPreferredWebMediaSource: GetPreferredWebMediaSourceUseCase = koin.get()
     private var skipRules: List<Long>? = null
 
     // MediaResolver 在 Koin 中是 factory, 每个会话持有一个实例.
@@ -260,8 +283,45 @@ class AniEpisodeSession internal constructor(
     @Throws(Exception::class)
     suspend fun autoSelect(): AniMediaCandidate? {
         val bundle = fetchSelect.filterNotNull().first()
-        autoSelectUseCase(bundle.mediaFetchSession, bundle.mediaSelector)
+        // 与上游 AutoSelectExtension 相同的顺序: 本地缓存 → 浏览记忆回放 → 自动选择
+        val episodeInfo = infoBundle.first().episodeInfo
+        val replayed = !hasLocalCacheForEpisode(bundle) && replayBrowseMemorySafely(episodeInfo, bundle.mediaSelector)
+        if (!replayed) {
+            autoSelectUseCase(bundle.mediaFetchSession, bundle.mediaSelector)
+        }
         return bundle.mediaSelector.selected.value?.toCandidate()
+    }
+
+    private suspend fun replayBrowseMemorySafely(episodeInfo: EpisodeInfo, selector: MediaSelector): Boolean = try {
+        replayBrowseMemory(subjectId, episodeInfo, selector).isHit
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        false // 任何失败都退回自动选择
+    }
+
+    /**
+     * 本地缓存的优先级高于浏览记忆: 等本地缓存源完成 (最多 2 秒), 看候选里有没有本集的缓存.
+     */
+    @OptIn(UnsafeOriginalMediaAccess::class)
+    private suspend fun hasLocalCacheForEpisode(bundle: MediaFetchSelectBundle): Boolean {
+        val cacheResults = bundle.mediaFetchSession.mediaSourceResults.filter { it.kind == MediaSourceKind.LocalCache }
+        if (cacheResults.isEmpty()) return false
+        return try {
+            withTimeoutOrNull(2.seconds) {
+                val cachedMediaIds = cacheResults.flatMapTo(HashSet()) { result ->
+                    result.awaitCompletedResults().map { it.mediaId }
+                }
+                if (cachedMediaIds.isEmpty()) return@withTimeoutOrNull false
+                bundle.mediaSelector.filteredCandidates
+                    .first { candidates -> candidates.any { it.original.mediaId in cachedMediaIds } }
+                    .any { it is MaybeExcludedMedia.Included && it.result.kind == MediaSourceKind.LocalCache }
+            } == true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /**
@@ -274,8 +334,159 @@ class AniEpisodeSession internal constructor(
         val selector = fetchSelect.filterNotNull().first().mediaSelector
         val media = selector.filteredCandidatesMedia.first().firstOrNull { it.mediaId == mediaId }
             ?: return false
+        // 用户在别处手动换源, 说明不想再按浏览记忆走; 删除记忆, 下一集回到自动匹配
+        forgetBrowseMemory()
         return selector.select(media, SelectTrigger.MANUAL_AUTO_PAGE)
     }
+
+    // region 手动查找
+
+    private val browsedSubjects = mutableMapOf<String, Pair<BrowseSubject, List<BrowseChannel>>>()
+
+    /**
+     * 支持浏览的已启用数据源, 以及默认选中的源与关键字.
+     */
+    @Throws(Exception::class)
+    suspend fun browseSources(): AniBrowseSources {
+        val instances = browsableInstances()
+        val memorySourceId = manualBrowseMemory.get(subjectId)?.mediaSourceId
+        val preferredId = memorySourceId ?: getPreferredWebMediaSource(subjectId).first()
+        val default = instances.firstOrNull { it.mediaSourceId == preferredId } ?: instances.firstOrNull()
+        return AniBrowseSources(
+            sources = instances.map { AniBrowseSource(it.instanceId, it.mediaSourceId, it.source.info.displayName) },
+            defaultInstanceId = default?.instanceId,
+            defaultKeyword = infoBundle.first().subjectInfo.nameCnOrName,
+        )
+    }
+
+    /**
+     * 在数据源 [instanceId] 上按关键字搜索条目, 原样返回站点的结果 (不匹配, 不排序).
+     *
+     * @throws AniBrowseException 请求失败; 站点要求验证码时 reason 为 CAPTCHA_UNSUPPORTED.
+     */
+    @Throws(Exception::class)
+    suspend fun browseSearch(instanceId: String, keyword: String): List<AniBrowseSubject> {
+        val instance = browsableInstance(instanceId)
+        return runBrowse { instance.source.searchSubjects(keyword) }
+            .map { AniBrowseSubject(it.name, it.url) }
+    }
+
+    /**
+     * 打开条目, 返回全部线路与剧集. 每条线路带有对应正在观看这一集的预选项 (规则同上游手动查找).
+     */
+    @Throws(Exception::class)
+    suspend fun browseSubject(instanceId: String, subject: AniBrowseSubject): List<AniBrowseChannel> {
+        val instance = browsableInstance(instanceId)
+        val browseSubject = BrowseSubject(subject.name, subject.url)
+        val channels = runBrowse { instance.source.browseSubject(browseSubject) }
+        browsedSubjects[subject.url] = browseSubject to channels
+        val info = infoBundle.first()
+        return channels.mapIndexed { index, channel ->
+            AniBrowseChannel(
+                index = index,
+                label = channel.label ?: channel.name ?: "",
+                episodes = channel.episodes.mapIndexed { i, episode ->
+                    AniBrowseEpisode(i, episode.name, episode.episodeSort?.toString().orEmpty())
+                },
+                preselectedEpisodeIndex = preselectedBrowseEpisodeIndex(
+                    pageName = browseSubject.name,
+                    episodes = channel.episodes,
+                    sort = info.episodeInfo.sort,
+                    ep = info.episodeInfo.ep,
+                    splitSeason = info.seriesInfo.splitSeason,
+                    subjectNames = info.subjectInfo.allNames,
+                ) ?: -1,
+            )
+        }
+    }
+
+    /**
+     * 把 [browseSubject] 打开过的条目里的一集作为当前集播放.
+     *
+     * [remember] 为 `true` 时是正式选择: 写入选源偏好与浏览记忆, 之后每一集按记住的线路里对应位置的一项自动选择.
+     * 为 `false` 时只对本集有效, 不写偏好与记忆.
+     */
+    @Throws(Exception::class)
+    suspend fun playBrowsed(instanceId: String, subjectUrl: String, channelIndex: Int, episodeIndex: Int, remember: Boolean) {
+        val instance = browsableInstance(instanceId)
+        val (subject, channels) = browsedSubjects[subjectUrl]
+            ?: throw AniBrowseException(AniBrowseException.REASON_FAILED, "Subject not opened: $subjectUrl")
+        val channel = channels.getOrNull(channelIndex)
+            ?: throw AniBrowseException(AniBrowseException.REASON_FAILED, "No channel $channelIndex")
+        val episode = channel.episodes.getOrNull(episodeIndex)
+            ?: throw AniBrowseException(AniBrowseException.REASON_FAILED, "No episode $episodeIndex")
+        val sort = infoBundle.first().episodeInfo.sort
+        val media = try {
+            instance.source.createMedia(subject, channel.name, episode, sort)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw AniBrowseException(AniBrowseException.REASON_FAILED, e.message, e)
+        }
+        val selector = fetchSelect.filterNotNull().first().mediaSelector
+        if (remember) {
+            selector.select(media, SelectTrigger.MANUAL_BROWSE)
+            manualBrowseMemory.set(
+                subjectId,
+                ManualBrowseMemory(
+                    mediaSourceId = instance.mediaSourceId,
+                    subject = subject,
+                    channelIndex = channelIndex,
+                    channelName = channel.name,
+                    episodeIndex = episodeIndex,
+                    playedAsSort = sort,
+                ),
+            )
+        } else {
+            selector.selectTemporarily(media, SelectTrigger.MANUAL_BROWSE)
+        }
+    }
+
+    /**
+     * 切换 "记住选择". 关闭时一并删除本条目已有的浏览记忆, 否则下一集仍会按旧记忆回放.
+     */
+    @Throws(Exception::class)
+    suspend fun setRememberManualSelection(remember: Boolean) {
+        settingsRepository.mediaSelectorSettings.update { copy(rememberManualSelection = remember) }
+        if (!remember) forgetBrowseMemory()
+    }
+
+    private suspend fun forgetBrowseMemory() {
+        try {
+            manualBrowseMemory.remove(subjectId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 删除失败只影响下一集是否回放
+        }
+    }
+
+    private suspend fun browsableInstances(): List<MediaSourceInstance> =
+        getMediaSourceInstances().first().filter { it.isEnabled && it.source.supportsBrowsing }
+
+    private suspend fun browsableInstance(instanceId: String): MediaSourceInstance =
+        browsableInstances().firstOrNull { it.instanceId == instanceId }
+            ?: throw AniBrowseException(AniBrowseException.REASON_FAILED, "Media source $instanceId is not browsable")
+
+    /**
+     * 浏览请求的统一异常处理. iOS 没有交互式验证码, 被验证码挡住时直接报告不支持.
+     */
+    private suspend fun <T> runBrowse(request: suspend () -> T): T = try {
+        request()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: BlockedException) {
+        val reason = if (e.reason is BlockReason.Captcha) {
+            AniBrowseException.REASON_CAPTCHA_UNSUPPORTED
+        } else {
+            AniBrowseException.REASON_FAILED
+        }
+        throw AniBrowseException(reason, e.message, e)
+    } catch (e: Exception) {
+        throw AniBrowseException(AniBrowseException.REASON_FAILED, e.message, e)
+    }
+
+    // endregion
 
     /**
      * 解析当前选中的资源为可播放地址. 网页资源会在后台 `WKWebView` 中加载页面并拦截视频请求, 可能需要数秒.

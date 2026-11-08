@@ -47,8 +47,7 @@ class AniSettingsStore internal constructor(
         settings.videoScaffoldConfig.flow,
         combine(settings.danmakuEnabled.flow, settings.danmakuConfig.flow) { enabled, config -> enabled to config },
         settings.uiSettings.flow,
-        settings.pikpakConfig.flow,
-    ) { selector, video, (danmakuEnabled, danmaku), ui, pikpak ->
+    ) { selector, video, (danmakuEnabled, danmaku), ui ->
         AniSettings(
             preferWebSources = selector.preferKind == MediaSourceKind.WEB,
             fastSelectWeb = selector.fastSelectWebKind,
@@ -62,11 +61,10 @@ class AniSettingsStore internal constructor(
             danmakuShowColor = danmaku.enableColor,
             danmakuTextConversion = danmaku.textConversion.name,
             nsfwMode = ui.searchSettings.nsfwMode.name,
-            pikpakEnabled = pikpak.enabled,
-            pikpakUsername = pikpak.username,
             autoSkipOpEd = video.autoSkipOpEd,
             opEdSkipSeconds = video.opEdSkipDuration.inWholeSeconds.toInt(),
             autoPlayNext = video.autoPlayNext,
+            rememberManualSelection = selector.rememberManualSelection,
         )
     }
 
@@ -203,26 +201,6 @@ class AniSettingsStore internal constructor(
 
     // endregion
 
-    // region PikPak
-
-    /**
-     * 设置 PikPak 云离线账号. iOS 没有本地 BT 引擎, 配置后 BT 资源经 PikPak 播放.
-     * 切换账号时清除旧账号的登录凭据.
-     */
-    @Throws(Exception::class)
-    suspend fun setPikPak(enabled: Boolean, username: String, password: String) {
-        settings.pikpakConfig.update {
-            val sameAccount = this.username == username
-            copy(
-                enabled = enabled,
-                username = username,
-                password = password.ifEmpty { if (sameAccount) this.password else "" },
-                refreshToken = if (sameAccount) refreshToken else "",
-            )
-        }
-    }
-
-    // endregion
 }
 
 interface AniSettingsListener {

@@ -41,15 +41,8 @@ struct SettingsScreen: View {
                 try await store.setAutoEnableLastSelected(value: $0)
             })
             NavigationLink("数据源") { MediaSourcesScreen() }
-            NavigationLink {
-                PikPakSettingsScreen()
-            } label: {
-                LabeledContent("PikPak 云离线", value: settings.pikpakEnabled ? settings.pikpakUsername : "未启用")
-            }
         } header: {
             Text("选源")
-        } footer: {
-            Text("iOS 没有本地 BT 引擎; 配置 PikPak 后, BT 资源经云离线播放。")
         }
     }
 
@@ -141,8 +134,13 @@ private struct MediaSourcesScreen: View {
     @Environment(AppServices.self) private var services
     @State private var sources: [AniMediaSourceItem] = []
 
+    /// iOS 上的查询会话不包含 BT 数据源 (上游 `MediaSourceManager` 在 iOS 上关闭了 BT 查询), 不列出它们.
+    private var visibleSources: [AniMediaSourceItem] {
+        sources.filter { $0.kind != "BitTorrent" }
+    }
+
     var body: some View {
-        List(sources, id: \.instanceId) { source in
+        List(visibleSources, id: \.instanceId) { source in
             Toggle(isOn: Binding(
                 get: { source.enabled },
                 set: { enabled in
@@ -151,7 +149,7 @@ private struct MediaSourcesScreen: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(source.displayName)
-                    Text(source.kind == "WEB" ? "在线" : source.kind == "BitTorrent" ? "BT" : source.kind)
+                    Text(source.kind == "WEB" ? "在线" : source.kind)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -220,63 +218,6 @@ private struct DanmakuFiltersScreen: View {
                 errorMessage = nil
             } catch {
                 errorMessage = "不是有效的正则表达式"
-            }
-        }
-    }
-}
-
-private struct PikPakSettingsScreen: View {
-    @Environment(AppServices.self) private var services
-    @Environment(\.dismiss) private var dismiss
-    @State private var enabled = false
-    @State private var username = ""
-    @State private var password = ""
-    @State private var errorMessage: String?
-    @State private var initialized = false
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("启用 PikPak", isOn: $enabled)
-                TextField("账号 (手机号或邮箱)", text: $username)
-                    .textContentType(.username)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                SecureField("密码 (留空则保持不变)", text: $password)
-                    .textContentType(.password)
-            } footer: {
-                Text("BT 资源会提交到 PikPak 离线下载, 再从 PikPak 流式播放。账号只保存在本机。")
-            }
-            if let errorMessage {
-                Section { Text(errorMessage).foregroundStyle(.red) }
-            }
-        }
-        .navigationTitle("PikPak 云离线")
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("保存") { save() }
-                    .disabled(enabled && username.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .onAppear {
-            guard !initialized, let settings = services.settings else { return }
-            initialized = true
-            enabled = settings.pikpakEnabled
-            username = settings.pikpakUsername
-        }
-    }
-
-    private func save() {
-        Task {
-            do {
-                try await services.core.settings.setPikPak(
-                    enabled: enabled,
-                    username: username.trimmingCharacters(in: .whitespaces),
-                    password: password,
-                )
-                dismiss()
-            } catch {
-                errorMessage = error.localizedDescription
             }
         }
     }
