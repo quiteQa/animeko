@@ -64,11 +64,13 @@ jobs:
         pod --version
         df -h
 
+    # pod install 要求 AniCore.framework 已存在, 先生成占位 framework; 真正的 framework 在 xcodebuild 时编译
     - name: 'Prepare FFmpeg runtime and AniCore podspec'
       run: >-
         ./gradlew
         :utils:http-downloader:extractMediampFfmpegAppleRuntime
         :app:ios-native:core:podspec
+        :app:ios-native:core:generateDummyFramework
         "-Dorg.gradle.jvmargs=-Xmx5g"
         "-Dkotlin.daemon.jvm.options=-Xmx5g"
 
