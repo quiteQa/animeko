@@ -261,6 +261,7 @@ data class AniCommentPage(
  * @param hlsAdFiltering `ALL`, `SMART` 或 `OFF`.
  * @param danmakuTextConversion `ORIGINAL`, `SIMPLIFIED`, `TRADITIONAL`, `TAIWAN` 或 `HONG_KONG`.
  * @param nsfwMode `HIDE`, `BLUR` 或 `DISPLAY`.
+ * @param opEdSkipSeconds 手动跳过 OP/ED 按钮一次跳过的秒数, 也是长视频自动跳过片段的长度.
  */
 data class AniSettings(
     val preferWebSources: Boolean,
@@ -277,6 +278,9 @@ data class AniSettings(
     val nsfwMode: String,
     val pikpakEnabled: Boolean,
     val pikpakUsername: String,
+    val autoSkipOpEd: Boolean,
+    val opEdSkipSeconds: Int,
+    val autoPlayNext: Boolean,
 )
 
 /**

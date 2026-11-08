@@ -66,7 +66,7 @@ struct PlayerScreen: View {
             .presentationDetents([.medium, .large])
         }
         .overlay(alignment: .top) {
-            if let message = model.downloadMessage {
+            if let message = model.toastMessage {
                 Text(message)
                     .font(.subheadline)
                     .padding(.horizontal, 16)
@@ -74,14 +74,33 @@ struct PlayerScreen: View {
                     .glassEffect(.regular, in: .capsule)
                     .padding(.top, 60)
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .task {
+                    .task(id: message) {
                         try? await Task.sleep(for: .seconds(2))
-                        withAnimation { model.downloadMessage = nil }
+                        withAnimation { model.toastMessage = nil }
                     }
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            // 自动跳过提示与控件层是否显示无关, 始终可以取消
+            if let segment = model.pendingSkip {
+                HStack(spacing: 12) {
+                    Text("即将跳过 \(segment.name)")
+                        .font(.subheadline)
+                    Button("取消") { model.cancelAutoSkip() }
+                        .buttonStyle(.glass)
+                }
+                .padding(.leading, 16)
+                .padding(4)
+                .glassEffect(.regular, in: .capsule)
+                .padding(.trailing, 24)
+                .padding(.bottom, controlsVisible ? 150 : 40)
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: model.pendingSkip?.name)
         .task {
-            model.start(core: services.core, settings: services.settings)
+            let services = services
+            model.start(core: services.core, settings: { services.settings })
             scheduleHideControls()
         }
     }

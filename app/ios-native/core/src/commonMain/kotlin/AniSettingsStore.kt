@@ -64,6 +64,9 @@ class AniSettingsStore internal constructor(
             nsfwMode = ui.searchSettings.nsfwMode.name,
             pikpakEnabled = pikpak.enabled,
             pikpakUsername = pikpak.username,
+            autoSkipOpEd = video.autoSkipOpEd,
+            opEdSkipSeconds = video.opEdSkipDuration.inWholeSeconds.toInt(),
+            autoPlayNext = video.autoPlayNext,
         )
     }
 
@@ -98,6 +101,18 @@ class AniSettingsStore internal constructor(
     @Throws(Exception::class)
     suspend fun setAutoMarkDone(value: Boolean) {
         settings.videoScaffoldConfig.update { copy(autoMarkDone = value) }
+    }
+
+    /** 根据服务器汇总的跳过点自动跳过 OP/ED. */
+    @Throws(Exception::class)
+    suspend fun setAutoSkipOpEd(value: Boolean) {
+        settings.videoScaffoldConfig.update { copy(autoSkipOpEd = value) }
+    }
+
+    /** 播放结束后自动播放下一集. */
+    @Throws(Exception::class)
+    suspend fun setAutoPlayNext(value: Boolean) {
+        settings.videoScaffoldConfig.update { copy(autoPlayNext = value) }
     }
 
     /** @param mode `HIDE`, `BLUR` 或 `DISPLAY`. */

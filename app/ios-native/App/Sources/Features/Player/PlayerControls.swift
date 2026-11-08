@@ -64,7 +64,7 @@ struct PlayerControls: View {
     }
 
     private var centerButtons: some View {
-        HStack(spacing: 32) {
+        HStack(spacing: 24) {
             Button { model.skip(by: -10); onInteraction() } label: {
                 Image(systemName: "gobackward.10").font(.title2).frame(width: 56, height: 56)
             }
@@ -77,6 +77,11 @@ struct PlayerControls: View {
                 Image(systemName: "goforward.10").font(.title2).frame(width: 56, height: 56)
             }
             .accessibilityLabel("前进 10 秒")
+            Button { model.playNextEpisode(); onInteraction() } label: {
+                Image(systemName: "forward.end.fill").font(.title2).frame(width: 56, height: 56)
+            }
+            .disabled(model.nextEpisode == nil)
+            .accessibilityLabel(model.nextEpisode.map { "下一集: 第 \($0.sort) 话" } ?? "没有下一集")
         }
         .buttonStyle(.glass)
         .buttonBorderShape(.circle)
@@ -120,6 +125,16 @@ struct PlayerControls: View {
                 }
 
                 Spacer()
+
+                Button {
+                    model.skipOpEd()
+                    onInteraction()
+                } label: {
+                    Label("跳过 \(model.manualSkipSeconds) 秒", systemImage: "forward.frame")
+                        .labelStyle(.iconOnly)
+                }
+                .disabled(model.phase != .playing)
+                .accessibilityLabel("跳过 OP/ED (\(model.manualSkipSeconds) 秒)")
 
                 Button {
                     model.downloadSelected()

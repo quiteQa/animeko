@@ -126,6 +126,7 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 | 搜索 | 系统搜索栏, 分页 | `AniSubjectSearchService` |
 | 条目详情 | 收藏状态菜单, 继续观看, 剧集左滑 / 长按标记看过 | `SetSubjectCollectionTypeOrDeleteUseCase`, `EpisodeCollectionRepository` |
 | 播放 | 自动选源, 续播上次位置, 每 5 秒及暂停/退出时保存进度, 看到 90% 自动标记看过, 画中画, HLS 去广告 | 选源用例, `MediaResolver`, `EpisodePlayHistoryRepository`, `HlsPlaybackPreparer`, 标记规则同 `MarkAsWatchedExtension` |
+| OP/ED 与下一集 | 按服务器汇总的跳过点自动跳过 (开始前 5 秒提示, 可取消), 手动跳过按钮 (上报跳过点), 播完自动播放下一集, 下一集按钮; 在同一播放页内切换剧集 | `AutoSkipRepository`, 片段与跳过规则同上游 `PlayerSkipOpEdState`, 下一集规则同 `SwitchNextEpisodeExtension` |
 | 选源面板 | 全部 / 符合偏好的资源, 字幕组 · 分辨率 · 字幕 · 数据源四维偏好, 每个数据源的查询状态与重试 | `MediaSelector` 的偏好项, `MediaFetchSession` |
 | 弹幕 | 清理文本, 简繁转换, 正则屏蔽词, 按轨道排布 | `DanmakuRepository`, `DanmakuTextConverter`, `TimeBasedDanmakuSession.filterList` |
 | 我的 | Bangumi 授权登录 / 绑定, 退出登录 | `OAuthConfigurator`, `BangumiOAuthClient` |
@@ -142,8 +143,8 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 
 ## 已知差异与待办
 
-- 不做自动跳过 OP/ED, 因此 HLS 代理只用于去广告, 不代理分片也不预缓存.
-- 不自动切换到下一集.
+- 自动跳过 OP/ED 只用服务器汇总的跳过点, 不读取视频文件自带的章节; 也不为跳转目标预缓存 (上游经 HLS 代理预取分片),
+  跳过后可能需要短暂缓冲.
 - 选源面板没有上游的 "手动查找" 与 "BT 列表" 两种模式; 需要验证码的数据源在 iOS 上无法交互 (上游 iOS 同样不支持).
 - 弹幕没有按来源的开关与时间偏移, 不能发送弹幕.
 - 评论只显示纯文本 (图片与表情以占位文字显示), 不支持回复, 点赞与举报.

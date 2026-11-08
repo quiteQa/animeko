@@ -33,12 +33,15 @@ import kotlinx.coroutines.launch
 import me.him188.ani.app.data.models.episode.allNames
 import me.him188.ani.app.data.models.preference.HlsAdFilteringMode
 import me.him188.ani.app.data.models.episode.displayName
+import me.him188.ani.app.data.network.AutoSkipRepository
 import me.him188.ani.app.data.repository.player.EpisodePlayHistoryRepository
 import me.him188.ani.app.data.repository.user.SettingsRepository
 import me.him188.ani.app.domain.danmaku.DanmakuRepository
 import me.him188.ani.app.domain.danmaku.DanmakuTextConversionSettings
 import me.him188.ani.app.domain.danmaku.SplitSeasonDanmakuMatcher
 import me.him188.ani.app.domain.episode.CreateMediaFetchSelectBundleFlowUseCase
+import me.him188.ani.app.domain.episode.EpisodeCompletionContext
+import me.him188.ani.app.domain.episode.findNeighborEpisode
 import me.him188.ani.app.domain.episode.GetEpisodeCollectionTypeUseCase
 import me.him188.ani.app.domain.episode.GetSubjectEpisodeInfoBundleFlowUseCase
 import me.him188.ani.app.domain.episode.MediaFetchSelectBundle
@@ -107,6 +110,8 @@ class AniEpisodeSession internal constructor(
     private val getDanmakuRegexFilterList: GetDanmakuRegexFilterListFlowUseCase = koin.get()
     private val danmakuProcessor = DanmakuProcessor()
     private val addDownload: AddDownloadUseCase = koin.get()
+    private val autoSkipRepository: AutoSkipRepository = koin.get()
+    private var skipRules: List<Long>? = null
 
     // MediaResolver 在 Koin 中是 factory, 每个会话持有一个实例.
     private val mediaResolver: MediaResolver = koin.get()
@@ -341,6 +346,42 @@ class AniEpisodeSession internal constructor(
         resolveJob = null
         hlsProxySession?.close()
         hlsProxySession = null
+    }
+
+    /**
+     * 本集可自动跳过的 OP/ED 片段, 来自服务器汇总的用户跳过记录. 每个会话只请求一次.
+     *
+     * @param videoDurationMillis 视频时长, 决定片段长度; 10 分钟以下的视频没有片段.
+     */
+    @Throws(Exception::class)
+    suspend fun skipSegments(videoDurationMillis: Long): List<AniSkipSegment> {
+        val times = skipRules ?: autoSkipRepository.rulesFlow(episodeId).first().also { skipRules = it }
+        val opEdSkipMillis = settingsRepository.videoScaffoldConfig.flow.first().opEdSkipDuration.inWholeMilliseconds
+        return buildSkipSegments(times, videoDurationMillis, opEdSkipMillis)
+    }
+
+    /**
+     * 上报一次手动跳过 OP/ED, 帮助服务器统计跳过点. 上游仓库会限流 (每集最多两次, 间隔十分钟).
+     * 拖入的本地文件之类不属于任何数据源的资源不上报.
+     */
+    @Throws(Exception::class)
+    suspend fun reportManualSkip(positionMillis: Long) {
+        val media = fetchSelect.value?.mediaSelector?.selected?.value ?: return
+        val timeSeconds = (positionMillis / 1000).toInt()
+        if (timeSeconds !in 0..200 * 60) return
+        autoSkipRepository.reportSkip(episodeId, media.mediaSourceId, timeSeconds, positionMillis)
+    }
+
+    /**
+     * 自动播放时的下一集: 剧集列表中紧随本集且确定已播出的一集. 没有时为 `null`. 与上游规则相同.
+     */
+    @Throws(Exception::class)
+    suspend fun nextEpisode(): AniEpisode? {
+        val subject = infoBundle.first().subjectCollectionInfo
+        return subject.episodes
+            .findNeighborEpisode(episodeId, offset = 1)
+            ?.takeIf { with(EpisodeCompletionContext) { it.episodeInfo.isKnownCompleted(subject.recurrence) } }
+            ?.toAniEpisode()
     }
 
     /**

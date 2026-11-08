@@ -54,13 +54,19 @@ struct SettingsScreen: View {
     }
 
     private func playbackSection(_ settings: AniSettings) -> some View {
-        Section("播放") {
+        Section {
             Picker("HLS 去广告", selection: binding(settings.hlsAdFiltering) { try await store.setHlsAdFiltering(mode: $0) }) {
                 Text("所有数据源").tag("ALL")
                 Text("仅标记了广告的数据源").tag("SMART")
                 Text("关闭").tag("OFF")
             }
             Toggle("看完 90% 自动标记看过", isOn: binding(settings.autoMarkDone) { try await store.setAutoMarkDone(value: $0) })
+            Toggle("自动跳过 OP/ED", isOn: binding(settings.autoSkipOpEd) { try await store.setAutoSkipOpEd(value: $0) })
+            Toggle("自动播放下一集", isOn: binding(settings.autoPlayNext) { try await store.setAutoPlayNext(value: $0) })
+        } header: {
+            Text("播放")
+        } footer: {
+            Text("自动跳过的位置来自其他用户手动跳过 OP/ED 的统计; 在播放页点击跳过按钮也会参与统计。")
         }
     }
 
