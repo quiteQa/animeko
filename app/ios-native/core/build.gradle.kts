@@ -27,6 +27,7 @@ kotlin {
         implementation(projects.app.shared.application)
         implementation(projects.app.shared.appData)
         implementation(projects.app.shared.appPlatform)
+        implementation(projects.utils.bbcode)
         implementation(libs.kotlinx.coroutines.core)
         implementation(libs.koin.core)
     }

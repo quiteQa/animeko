@@ -204,3 +204,120 @@ data class AniDanmaku(
     val color: Int,
     val location: AniDanmakuLocation,
 )
+
+// region P3: 探索, 评论, 设置, 缓存
+
+/**
+ * 时间表中的一天.
+ *
+ * @param date `yyyy-MM-dd`, 用户所在时区.
+ */
+data class AniScheduleDay(
+    val date: String,
+    val items: List<AniScheduleItem>,
+)
+
+/**
+ * @param airingTimeMillis 放送时刻 (epoch 毫秒). [timeKnown] 为 `false` 时只有日期准确.
+ */
+data class AniScheduleItem(
+    val subjectId: Int,
+    val subjectName: String,
+    val imageUrl: String,
+    val episodeId: Int,
+    val episodeSort: String,
+    val episodeName: String,
+    val airingTimeMillis: Long,
+    val timeKnown: Boolean,
+)
+
+/**
+ * 一条评论或评价. [text] 是由 BBCode 转换的纯文本: 图片显示为 `[图片]`, 表情显示为 `[表情]`, 引用以 `> ` 开头.
+ *
+ * @param rating 条目评价的评分 (1-10), 剧集评论或未评分为 0.
+ */
+data class AniComment(
+    val id: String,
+    val authorName: String,
+    val authorAvatarUrl: String,
+    val createdAtMillis: Long,
+    val text: String,
+    val rating: Int,
+    val replies: List<AniComment>,
+    val replyCount: Int,
+)
+
+/**
+ * @param nextCursor 下一页的游标 (剧集评论) 或偏移 (条目评价, 十进制字符串); 没有更多时为 `null`.
+ */
+data class AniCommentPage(
+    val items: List<AniComment>,
+    val nextCursor: String?,
+)
+
+/**
+ * iOS 客户端提供的设置项. 写入通过 [AniSettingsStore] 的对应方法.
+ *
+ * @param hlsAdFiltering `ALL`, `SMART` 或 `OFF`.
+ * @param danmakuTextConversion `ORIGINAL`, `SIMPLIFIED`, `TRADITIONAL`, `TAIWAN` 或 `HONG_KONG`.
+ * @param nsfwMode `HIDE`, `BLUR` 或 `DISPLAY`.
+ */
+data class AniSettings(
+    val preferWebSources: Boolean,
+    val fastSelectWeb: Boolean,
+    val autoEnableLastSelected: Boolean,
+    val hlsAdFiltering: String,
+    val autoMarkDone: Boolean,
+    val danmakuEnabled: Boolean,
+    val danmakuShowTop: Boolean,
+    val danmakuShowBottom: Boolean,
+    val danmakuShowFloating: Boolean,
+    val danmakuShowColor: Boolean,
+    val danmakuTextConversion: String,
+    val nsfwMode: String,
+    val pikpakEnabled: Boolean,
+    val pikpakUsername: String,
+)
+
+/**
+ * 一个已配置的数据源实例.
+ */
+data class AniMediaSourceItem(
+    val instanceId: String,
+    val mediaSourceId: String,
+    val displayName: String,
+    val kind: String,
+    val enabled: Boolean,
+)
+
+data class AniDanmakuFilter(
+    val id: String,
+    val name: String,
+    val regex: String,
+    val enabled: Boolean,
+)
+
+/**
+ * 一个缓存 (下载) 任务.
+ *
+ * @param state `IN_PROGRESS`, `PAUSED`, `FAILED` 或 `COMPLETED`.
+ * @param progress 0 到 1, 未知时为 -1.
+ * @param busy 是否有暂停, 继续或删除操作正在执行.
+ */
+data class AniDownload(
+    val id: String,
+    val subjectId: Int,
+    val subjectName: String,
+    val episodeId: Int,
+    val episodeSort: String,
+    val episodeName: String,
+    val mediaSourceId: String,
+    val state: String,
+    val progress: Float,
+    val totalBytes: Long,
+    val speedBytesPerSecond: Long,
+    val canPlay: Boolean,
+    val busy: Boolean,
+)
+
+// endregion

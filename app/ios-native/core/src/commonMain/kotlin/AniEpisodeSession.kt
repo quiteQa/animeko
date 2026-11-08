@@ -44,7 +44,9 @@ import me.him188.ani.app.domain.episode.GetSubjectEpisodeInfoBundleFlowUseCase
 import me.him188.ani.app.domain.episode.MediaFetchSelectBundle
 import me.him188.ani.app.domain.episode.SetEpisodeCollectionTypeUseCase
 import me.him188.ani.app.domain.episode.SubjectEpisodeInfoBundle
+import me.him188.ani.app.domain.media.download.AddDownloadUseCase
 import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
+import me.him188.ani.app.domain.media.fetch.create
 import me.him188.ani.app.domain.media.hls.HlsPlaybackOptions
 import me.him188.ani.app.domain.media.hls.HlsPlaybackPreparer
 import me.him188.ani.app.domain.media.hls.HlsPlaybackProxySession
@@ -63,6 +65,8 @@ import me.him188.ani.app.domain.settings.GetVideoScaffoldConfigUseCase
 import me.him188.ani.danmaku.api.DanmakuServiceId
 import me.him188.ani.danmaku.api.provider.DanmakuFetchRequest
 import me.him188.ani.datasources.api.Media
+import me.him188.ani.datasources.api.MediaCacheMetadata
+import me.him188.ani.datasources.api.source.MediaFetchRequest
 import me.him188.ani.datasources.api.topic.UnifiedCollectionType
 import me.him188.ani.datasources.api.topic.isDoneOrDropped
 import org.koin.core.Koin
@@ -102,6 +106,7 @@ class AniEpisodeSession internal constructor(
     private val settingsRepository: SettingsRepository = koin.get()
     private val getDanmakuRegexFilterList: GetDanmakuRegexFilterListFlowUseCase = koin.get()
     private val danmakuProcessor = DanmakuProcessor()
+    private val addDownload: AddDownloadUseCase = koin.get()
 
     // MediaResolver 在 Koin 中是 factory, 每个会话持有一个实例.
     private val mediaResolver: MediaResolver = koin.get()
@@ -218,6 +223,7 @@ class AniEpisodeSession internal constructor(
         )
         if (isPlaying && !markedWatched && PlaybackProgressPolicy.shouldMarkWatched(positionMillis, durationMillis)) {
             markedWatched = true
+            if (!settingsRepository.videoScaffoldConfig.flow.first().autoMarkDone) return
             val current = getEpisodeCollectionType(subjectId, episodeId, allowNetwork = false)
             if (current?.isDoneOrDropped() != true) {
                 setEpisodeCollectionType(subjectId, episodeId, UnifiedCollectionType.DONE)
@@ -335,6 +341,25 @@ class AniEpisodeSession internal constructor(
         resolveJob = null
         hlsProxySession?.close()
         hlsProxySession = null
+    }
+
+    /**
+     * 缓存当前选中的资源. 已有同一资源同一集的缓存时直接返回.
+     *
+     * @throws AniPlaybackException 没有选中资源时.
+     */
+    @Throws(Exception::class)
+    suspend fun downloadSelected() {
+        val media = fetchSelect.filterNotNull().first().mediaSelector.selected.value
+            ?: throw AniPlaybackException(AniPlaybackException.REASON_NOTHING_SELECTED, "No media selected")
+        val info = infoBundle.first()
+        addDownload(
+            subject = info.subjectInfo,
+            episode = info.episodeInfo,
+            media = media,
+            metadata = MediaCacheMetadata(MediaFetchRequest.create(info.subjectInfo, info.episodeInfo)),
+            splitSeason = info.seriesInfo.splitSeason,
+        )
     }
 
     /**

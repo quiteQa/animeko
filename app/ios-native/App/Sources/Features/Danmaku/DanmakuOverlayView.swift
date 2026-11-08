@@ -9,6 +9,9 @@ final class DanmakuOverlayView: UIView {
     /// 当前播放时间 (秒). 没有媒体时返回 `nil`.
     var currentTime: () -> TimeInterval? = { nil }
 
+    /// 关闭时所有弹幕显示为白色.
+    var showsColor = true
+
     var isDanmakuEnabled = true {
         didSet {
             guard oldValue != isDanmakuEnabled else { return }
@@ -114,7 +117,7 @@ final class DanmakuOverlayView: UIView {
     private func show(_ item: AniDanmaku, start: TimeInterval) {
         let attributed = NSAttributedString(
             string: item.text,
-            attributes: [.font: font, .foregroundColor: UIColor(rgb: item.color)],
+            attributes: [.font: font, .foregroundColor: showsColor ? UIColor(rgb: item.color) : UIColor.white],
         )
         let width = ceil(attributed.size().width)
         let track: Int?
@@ -215,6 +218,7 @@ private extension UIColor {
 struct DanmakuOverlay: UIViewRepresentable {
     let danmaku: [AniDanmaku]
     let isEnabled: Bool
+    var showsColor = true
     let currentTime: () -> TimeInterval?
 
     func makeUIView(context: Context) -> DanmakuOverlayView {
@@ -228,6 +232,7 @@ struct DanmakuOverlay: UIViewRepresentable {
     func updateUIView(_ view: DanmakuOverlayView, context: Context) {
         view.currentTime = currentTime
         view.isDanmakuEnabled = isEnabled
+        view.showsColor = showsColor
         if context.coordinator.count != danmaku.count {
             context.coordinator.count = danmaku.count
             view.setDanmaku(danmaku)

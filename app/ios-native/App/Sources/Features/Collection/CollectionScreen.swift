@@ -80,7 +80,7 @@ struct CollectionScreen: View {
 
     private var list: some View {
         List(model.items, id: \.subject.id) { item in
-            NavigationLink(value: item.subject) {
+            NavigationLink(value: SubjectRoute(item.subject)) {
                 CollectionRow(item: item, isOpening: openingEpisode == item.nextEpisodeId?.int32Value) {
                     play(item)
                 }

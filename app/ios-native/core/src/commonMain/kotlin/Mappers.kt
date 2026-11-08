@@ -14,6 +14,9 @@ import me.him188.ani.app.data.models.episode.displayName
 import me.him188.ani.app.data.models.subject.ContinueWatchingStatus
 import me.him188.ani.app.data.models.subject.SubjectCollectionInfo
 import me.him188.ani.app.data.models.subject.SubjectInfo
+import me.him188.ani.app.data.models.subject.displayName
+import me.him188.ani.app.data.models.trending.TrendingSubjectInfo
+import me.him188.ani.app.domain.episode.AiringScheduleForDate
 import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
 import me.him188.ani.danmaku.api.DanmakuInfo
 import me.him188.ani.danmaku.api.DanmakuLocation
@@ -132,3 +135,31 @@ internal fun MediaSourceFetchState.toAniStateName(): String = when (this) {
     is MediaSourceFetchState.Abandoned -> "ABANDONED"
     else -> this::class.simpleName.orEmpty().uppercase()
 }
+
+internal fun TrendingSubjectInfo.toAniSubject(): AniSubject = AniSubject(
+    id = bangumiId,
+    name = nameCn,
+    nameCn = nameCn,
+    displayName = nameCn,
+    imageUrl = imageLarge,
+    summary = "",
+    airDate = "",
+    totalEpisodes = 0,
+    nsfw = false,
+)
+
+internal fun AiringScheduleForDate.toAniScheduleDay(): AniScheduleDay = AniScheduleDay(
+    date = date.toString(),
+    items = list.map { item ->
+        AniScheduleItem(
+            subjectId = item.subject.subjectId,
+            subjectName = item.subject.displayName,
+            imageUrl = item.subject.imageLarge,
+            episodeId = item.episode.episodeId,
+            episodeSort = item.episode.sort.toString(),
+            episodeName = item.episode.displayName,
+            airingTimeMillis = item.airingTime.toEpochMilliseconds(),
+            timeKnown = item.timeKnown,
+        )
+    },
+)

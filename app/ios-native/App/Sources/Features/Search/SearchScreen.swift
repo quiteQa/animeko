@@ -25,8 +25,8 @@ final class SearchModel {
         loadPage(core: core)
     }
 
-    func loadMoreIfNeeded(after subject: AniSubject, core: AniCore) {
-        guard subject.id == results.last?.id, !isLoading, !reachedEnd else { return }
+    func loadMore(core: AniCore) {
+        guard !isLoading, !reachedEnd, !results.isEmpty else { return }
         loadPage(core: core)
     }
 
@@ -54,13 +54,22 @@ struct SearchScreen: View {
     @Environment(AppServices.self) private var services
     @State private var model = SearchModel()
 
+    private var nsfwMode: String { services.settings?.nsfwMode ?? "HIDE" }
+
+    /// 按 NSFW 设置过滤: 隐藏模式下不显示 NSFW 条目.
+    private var visibleResults: [AniSubject] {
+        nsfwMode == "HIDE" ? model.results.filter { !$0.nsfw } : model.results
+    }
+
     var body: some View {
         List {
-            ForEach(model.results, id: \.id) { subject in
-                NavigationLink(value: subject) {
-                    SubjectRow(subject: subject)
+            ForEach(visibleResults, id: \.id) { subject in
+                NavigationLink(value: SubjectRoute(subject)) {
+                    SubjectRow(subject: subject, blurCover: subject.nsfw && nsfwMode == "BLUR")
                 }
-                .onAppear { model.loadMoreIfNeeded(after: subject, core: services.core) }
+                .onAppear {
+                    if subject.id == visibleResults.last?.id { model.loadMore(core: services.core) }
+                }
             }
             if model.isLoading {
                 ProgressView()
@@ -90,11 +99,14 @@ struct SearchScreen: View {
 
 private struct SubjectRow: View {
     let subject: AniSubject
+    var blurCover = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             CoverImage(url: subject.imageUrl)
                 .frame(width: 64, height: 90)
+                .blur(radius: blurCover ? 12 : 0)
+                .clipShape(.rect(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 4) {
                 Text(subject.displayName)
                     .font(.headline)

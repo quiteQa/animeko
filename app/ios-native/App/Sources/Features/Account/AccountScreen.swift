@@ -53,6 +53,19 @@ struct AccountScreen: View {
                 ProgressView().frame(maxWidth: .infinity)
             }
 
+            Section {
+                NavigationLink {
+                    DownloadsScreen()
+                } label: {
+                    Label("缓存管理", systemImage: "arrow.down.circle")
+                }
+                NavigationLink {
+                    SettingsScreen()
+                } label: {
+                    Label("设置", systemImage: "gearshape")
+                }
+            }
+
             if let message = login.errorMessage {
                 Section {
                     Label(message, systemImage: "exclamationmark.triangle")

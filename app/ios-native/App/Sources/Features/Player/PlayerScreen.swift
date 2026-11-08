@@ -8,6 +8,7 @@ struct PlayerScreen: View {
     @State private var model: PlayerModel
     @State private var controlsVisible = true
     @State private var showsSourcePicker = false
+    @State private var showsComments = false
     @State private var pictureInPicture: AVPictureInPictureController?
     @State private var hideControlsTask: Task<Void, Never>?
 
@@ -23,8 +24,9 @@ struct PlayerScreen: View {
                 .ignoresSafeArea()
 
             DanmakuOverlay(
-                danmaku: model.danmaku,
+                danmaku: model.visibleDanmaku(settings: services.settings),
                 isEnabled: model.isDanmakuEnabled,
+                showsColor: services.settings?.danmakuShowColor ?? true,
                 currentTime: { [model] in model.playbackTime() },
             )
             .ignoresSafeArea()
@@ -39,6 +41,7 @@ struct PlayerScreen: View {
                     canStartPictureInPicture: pictureInPicture != nil,
                     onClose: close,
                     onShowSources: { showsSourcePicker = true },
+                    onShowComments: { showsComments = true },
                     onPictureInPicture: { pictureInPicture?.startPictureInPicture() },
                     onInteraction: scheduleHideControls,
                 )
@@ -56,8 +59,29 @@ struct PlayerScreen: View {
             SourcePickerSheet(model: model)
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showsComments) {
+            NavigationStack {
+                CommentsScreen(source: .episode(model.target.episode.id), title: "评论")
+            }
+            .presentationDetents([.medium, .large])
+        }
+        .overlay(alignment: .top) {
+            if let message = model.downloadMessage {
+                Text(message)
+                    .font(.subheadline)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .glassEffect(.regular, in: .capsule)
+                    .padding(.top, 60)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .task {
+                        try? await Task.sleep(for: .seconds(2))
+                        withAnimation { model.downloadMessage = nil }
+                    }
+            }
+        }
         .task {
-            model.start(core: services.core)
+            model.start(core: services.core, settings: services.settings)
             scheduleHideControls()
         }
     }

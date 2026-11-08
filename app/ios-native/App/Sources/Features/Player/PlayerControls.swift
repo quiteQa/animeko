@@ -7,6 +7,7 @@ struct PlayerControls: View {
     let canStartPictureInPicture: Bool
     let onClose: () -> Void
     let onShowSources: () -> Void
+    let onShowComments: () -> Void
     let onPictureInPicture: () -> Void
     let onInteraction: () -> Void
 
@@ -114,7 +115,20 @@ struct PlayerControls: View {
                 }
                 .accessibilityValue(model.isDanmakuEnabled ? "开" : "关")
 
+                Button(action: onShowComments) {
+                    Label("评论", systemImage: "text.bubble")
+                }
+
                 Spacer()
+
+                Button {
+                    model.downloadSelected()
+                    onInteraction()
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                }
+                .disabled(model.selected == nil)
+                .accessibilityLabel("缓存本集")
 
                 Button(action: onShowSources) {
                     Label(model.selected.map { model.sourceName($0.mediaSourceId) } ?? "选择资源", systemImage: "square.stack")

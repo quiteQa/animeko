@@ -18,13 +18,20 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.todayIn
 import me.him188.ani.app.data.network.AniApiProvider
+import me.him188.ani.app.data.network.AniEpisodeCommentService
+import me.him188.ani.app.data.network.BangumiCommentService
+import me.him188.ani.app.data.network.TrendsRepository
+import me.him188.ani.app.data.network.toEpisodeComment
 import me.him188.ani.app.data.network.AniSubjectSearchService
 import me.him188.ani.app.data.repository.episode.EpisodeCollectionRepository
 import me.him188.ani.app.data.repository.episode.setEpisodeWatched
 import me.him188.ani.app.data.repository.subject.SetSubjectCollectionTypeOrDeleteUseCase
 import me.him188.ani.app.data.repository.subject.SubjectCollectionRepository
 import me.him188.ani.app.data.repository.user.UserRepository
+import me.him188.ani.app.domain.episode.GetAnimeScheduleFlowUseCase
 import me.him188.ani.app.domain.session.SessionManager
 import me.him188.ani.app.domain.session.SessionState
 import me.him188.ani.app.domain.session.SessionStateProvider
@@ -32,6 +39,7 @@ import me.him188.ani.app.domain.session.auth.BangumiOAuthClient
 import me.him188.ani.app.domain.session.auth.OAuthConfigurator
 import org.koin.core.Koin
 import kotlin.coroutines.CoroutineContext
+import kotlin.time.Clock
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -54,6 +62,10 @@ class AniCore internal constructor(
     private val sessionStateProvider: SessionStateProvider by lazy { koin.get() }
     private val sessionManager: SessionManager by lazy { koin.get() }
     private val userRepository: UserRepository by lazy { koin.get() }
+    private val trendsRepository: TrendsRepository by lazy { koin.get() }
+    private val getAnimeSchedule: GetAnimeScheduleFlowUseCase by lazy { koin.get() }
+    private val episodeCommentService: AniEpisodeCommentService by lazy { koin.get() }
+    private val subjectCommentService: BangumiCommentService by lazy { koin.get() }
 
     // region 搜索与条目
 
@@ -200,6 +212,75 @@ class AniCore internal constructor(
 
     // endregion
 
+    // region 探索
+
+    /**
+     * 热门条目 (Ani 服务器统计).
+     */
+    @Throws(Exception::class)
+    suspend fun trendingSubjects(): List<AniSubject> {
+        return trendsRepository.getTrendsInfo().subjects.map { it.toAniSubject() }
+    }
+
+    /**
+     * 观察以今天为中心前后 7 天的放送时间表 (用户所在时区). 跨过午夜后不会自动刷新, 需要重新订阅.
+     */
+    fun observeSchedule(listener: AniScheduleListener): AniSubscription {
+        val timeZone = TimeZone.currentSystemDefault()
+        val today = Clock.System.todayIn(timeZone)
+        return scope.launchObserver(
+            callbackContext,
+            getAnimeSchedule(today, timeZone).map { days -> days.map { it.toAniScheduleDay() } },
+            onError = { listener.onError(it.message ?: it.toString()) },
+        ) { listener.onSchedule(it) }
+    }
+
+    // endregion
+
+    // region 评论
+
+    /**
+     * 剧集评论 (Ani 与 Bangumi 合并). 第一页 [cursor] 传 `null`.
+     */
+    @Throws(Exception::class)
+    suspend fun episodeComments(episodeId: Int, cursor: String?, limit: Int): AniCommentPage {
+        val response = episodeCommentService.listEpisodeComments(episodeId.toLong(), after = cursor, limit = limit)
+        return AniCommentPage(
+            items = response.items.map { it.toEpisodeComment().toAniComment() },
+            nextCursor = response.nextCursor,
+        )
+    }
+
+    /**
+     * 条目评价. 第一页 [cursor] 传 `null`, 之后传上一页的 [AniCommentPage.nextCursor].
+     */
+    @Throws(Exception::class)
+    suspend fun subjectReviews(subjectId: Int, cursor: String?, limit: Int): AniCommentPage {
+        val offset = cursor?.toIntOrNull() ?: 0
+        val paged = subjectCommentService.getSubjectComments(subjectId, offset, limit)
+            ?: return AniCommentPage(emptyList(), null)
+        return AniCommentPage(
+            items = paged.page.map { it.toAniComment() },
+            nextCursor = if (paged.hasMore) (offset + paged.page.size).toString() else null,
+        )
+    }
+
+    /**
+     * 发表剧集评论. [text] 按 BBCode 发送. 需要登录.
+     */
+    @Throws(Exception::class)
+    suspend fun postEpisodeComment(episodeId: Int, text: String) {
+        episodeCommentService.createEpisodeComment(episodeId.toLong(), text)
+    }
+
+    // endregion
+
+    /** 设置项. */
+    val settings: AniSettingsStore by lazy { AniSettingsStore(koin, scope, callbackContext) }
+
+    /** 缓存 (下载) 管理. */
+    val downloads: AniDownloads by lazy { AniDownloads(koin, scope, callbackContext) }
+
     /**
      * 为一集创建播放会话. 会话立即开始查询全部启用的数据源; 不再使用时调用 [AniEpisodeSession.close].
      */
@@ -230,6 +311,11 @@ interface AniSubjectDetailListener {
 
 interface AniCollectionsListener {
     fun onCollections(items: List<AniCollectionItem>)
+    fun onError(message: String)
+}
+
+interface AniScheduleListener {
+    fun onSchedule(days: List<AniScheduleDay>)
     fun onError(message: String)
 }
 

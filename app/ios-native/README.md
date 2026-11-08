@@ -15,7 +15,8 @@ app/ios-native/
     ├── Sources/
     │   ├── Core/          AniCore 的 Swift 适配 (observe* → AsyncStream)
     │   ├── Common/        跨页面的文案与格式
-    │   └── Features/      Collection, Search, Subject, Player, Danmaku, Account
+    │   └── Features/      Collection, Explore, Search, Subject, Player, Danmaku,
+    │                      Comments, Downloads, Settings, Account
     └── Tests/             不依赖 AniCore 的纯 Swift 单元测试
 ```
 
@@ -117,7 +118,7 @@ open AnimekoNative.xcworkspace
 
 Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCore.
 
-## 功能 (P1 + P2)
+## 功能
 
 | 页面 | 内容 | 复用的上游逻辑 |
 | --- | --- | --- |
@@ -128,6 +129,13 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 | 选源面板 | 全部 / 符合偏好的资源, 字幕组 · 分辨率 · 字幕 · 数据源四维偏好, 每个数据源的查询状态与重试 | `MediaSelector` 的偏好项, `MediaFetchSession` |
 | 弹幕 | 清理文本, 简繁转换, 正则屏蔽词, 按轨道排布 | `DanmakuRepository`, `DanmakuTextConverter`, `TimeBasedDanmakuSession.filterList` |
 | 我的 | Bangumi 授权登录 / 绑定, 退出登录 | `OAuthConfigurator`, `BangumiOAuthClient` |
+| 探索 | 热门条目, 前后 7 天的放送时间表 | `TrendsRepository`, `GetAnimeScheduleFlowUseCase` |
+| 评论 | 条目评价, 剧集评论 (Ani 与 Bangumi 合并), 登录后发表剧集评论; BBCode 转为纯文本显示 | `BangumiCommentService`, `AniEpisodeCommentService`, `utils:bbcode` |
+| 缓存管理 | 播放页一键缓存当前资源, 按条目分组的缓存列表, 暂停 / 继续 / 删除; 缓存好的剧集播放时自动优先 | `AddDownloadUseCase`, `MediaDownloadManager`, `DownloadOperations` |
+| 设置 | 选源偏好, 数据源开关, PikPak 云离线账号, HLS 去广告, 自动标记看过, 弹幕类型 / 彩色 / 文字转换 / 屏蔽词, NSFW 显示方式 | `SettingsRepository`, `MediaSourceManager`, `DanmakuRegexFilterRepository` |
+
+设置读写的是上游 `SettingsRepository` 中的同一份数据, 语义与其他平台一致 (例如关闭 "自动标记看过" 后,
+播放会话不再标记).
 
 登录流程: Kotlin 侧向服务器申请授权链接, Swift 在 App 内 Safari 中打开; 用户授权后 Kotlin 轮询到结果并写入会话.
 关闭授权页即取消本次登录.
@@ -137,5 +145,8 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 - 不做自动跳过 OP/ED, 因此 HLS 代理只用于去广告, 不代理分片也不预缓存.
 - 不自动切换到下一集.
 - 选源面板没有上游的 "手动查找" 与 "BT 列表" 两种模式; 需要验证码的数据源在 iOS 上无法交互 (上游 iOS 同样不支持).
-- 弹幕没有按来源的开关与时间偏移 (上游 `DanmakuOriginConfig`), 也不能发送弹幕.
-- 设置, 探索, 评论, 缓存管理在 P3.
+- 弹幕没有按来源的开关与时间偏移, 不能发送弹幕.
+- 评论只显示纯文本 (图片与表情以占位文字显示), 不支持回复, 点赞与举报.
+- 缓存只能从播放页逐集添加, 没有上游的批量选集下载.
+- 设置只覆盖上表列出的项; 数据源订阅的增删, 代理, 主题等仍需在其他平台的客户端里修改.
+- 时间表跨过午夜不会自动切换 "今天", 重新进入页面即可.

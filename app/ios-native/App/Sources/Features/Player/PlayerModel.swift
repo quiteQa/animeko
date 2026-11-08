@@ -34,6 +34,8 @@ final class PlayerModel {
     private(set) var duration: TimeInterval = 0
     private(set) var isPlaying = false
     var isDanmakuEnabled = true
+    /// 缓存当前资源的结果提示, 显示后由视图清除.
+    var downloadMessage: String?
 
     @ObservationIgnored private var session: AniEpisodeSession?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
@@ -51,8 +53,9 @@ final class PlayerModel {
         self.target = target
     }
 
-    func start(core: AniCore) {
+    func start(core: AniCore, settings: AniSettings?) {
         guard session == nil else { return }
+        if let settings { isDanmakuEnabled = settings.danmakuEnabled }
         let session = core.openEpisode(subjectId: target.subject.id, episodeId: target.episode.id)
         self.session = session
         observePlayer()
@@ -97,6 +100,32 @@ final class PlayerModel {
     func select(_ candidate: AniMediaCandidate) {
         guard let session else { return }
         Task { _ = try? await session.select(mediaId: candidate.mediaId) }
+    }
+
+    /// 缓存正在播放的资源. 进度在 "我的 > 缓存管理" 查看.
+    func downloadSelected() {
+        guard let session else { return }
+        Task {
+            do {
+                try await session.downloadSelected()
+                downloadMessage = "已加入缓存"
+            } catch {
+                downloadMessage = "缓存失败: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 按设置筛选要显示的弹幕类型.
+    func visibleDanmaku(settings: AniSettings?) -> [AniDanmaku] {
+        guard let settings else { return danmaku }
+        if settings.danmakuShowTop, settings.danmakuShowBottom, settings.danmakuShowFloating { return danmaku }
+        return danmaku.filter { item in
+            switch item.location {
+            case .top: settings.danmakuShowTop
+            case .bottom: settings.danmakuShowBottom
+            default: settings.danmakuShowFloating
+            }
+        }
     }
 
     func retrySource(_ source: AniMediaSourceStatus) {

@@ -48,12 +48,14 @@ struct PlaybackTarget: Identifiable, Hashable {
 }
 
 struct SubjectScreen: View {
-    let subject: AniSubject
+    let route: SubjectRoute
 
     @Environment(AppServices.self) private var services
     @State private var model = SubjectModel()
     @State private var playing: PlaybackTarget?
     @State private var reloadToken = 0
+
+    private var subjectId: Int32 { route.id }
 
     private var nextEpisode: AniEpisode? {
         guard let detail = model.detail, let id = detail.nextEpisodeId?.int32Value else { return nil }
@@ -63,11 +65,11 @@ struct SubjectScreen: View {
     var body: some View {
         List {
             Section {
-                SubjectHeader(subject: model.detail?.subject ?? subject)
+                SubjectHeader(subject: model.detail?.subject, route: route)
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
             }
-            if let next = nextEpisode {
+            if let next = nextEpisode, let subject = model.detail?.subject {
                 Section {
                     Button {
                         playing = PlaybackTarget(subject: subject, episode: next)
@@ -85,18 +87,30 @@ struct SubjectScreen: View {
                     Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
                 }
             }
+            Section {
+                NavigationLink {
+                    CommentsScreen(source: .subjectReviews(subjectId), title: "评价")
+                } label: {
+                    Label("评价", systemImage: "text.bubble")
+                }
+                NavigationLink {
+                    DownloadsScreen(subjectId: subjectId)
+                } label: {
+                    Label("本番缓存", systemImage: "arrow.down.circle")
+                }
+            }
             Section("剧集") {
                 episodes
             }
         }
-        .navigationTitle(subject.displayName)
+        .navigationTitle(model.detail?.subject.displayName ?? route.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if services.isLoggedIn {
                 ToolbarItem(placement: .primaryAction) { collectionMenu }
             }
         }
-        .task(id: reloadToken) { await model.observe(subjectId: subject.id, core: services.core) }
+        .task(id: reloadToken) { await model.observe(subjectId: subjectId, core: services.core) }
         .refreshable { reloadToken += 1 }
         .fullScreenCover(item: $playing) { target in
             PlayerScreen(target: target)
@@ -108,7 +122,7 @@ struct SubjectScreen: View {
         if let detail = model.detail {
             ForEach(detail.episodes, id: \.id) { episode in
                 Button {
-                    playing = PlaybackTarget(subject: subject, episode: episode)
+                    playing = PlaybackTarget(subject: detail.subject, episode: episode)
                 } label: {
                     EpisodeRow(episode: episode, isNext: episode.id == nextEpisode?.id)
                 }
@@ -130,7 +144,7 @@ struct SubjectScreen: View {
 
     private func watchedButton(for episode: AniEpisode) -> some View {
         Button {
-            Task { await model.setWatched(!episode.watched, episode: episode, subjectId: subject.id, core: services.core) }
+            Task { await model.setWatched(!episode.watched, episode: episode, subjectId: subjectId, core: services.core) }
         } label: {
             if episode.watched {
                 Label("取消看过", systemImage: "arrow.uturn.backward.circle")
@@ -147,7 +161,7 @@ struct SubjectScreen: View {
             Picker("收藏", selection: Binding(
                 get: { current },
                 set: { type in
-                    Task { await model.setCollectionType(type, subjectId: subject.id, core: services.core) }
+                    Task { await model.setCollectionType(type, subjectId: subjectId, core: services.core) }
                 },
             )) {
                 ForEach(AniCollectionType.selectable, id: \.self) { type in
@@ -157,7 +171,7 @@ struct SubjectScreen: View {
             if current != .notCollected {
                 Divider()
                 Button("取消收藏", systemImage: "trash", role: .destructive) {
-                    Task { await model.setCollectionType(.notCollected, subjectId: subject.id, core: services.core) }
+                    Task { await model.setCollectionType(.notCollected, subjectId: subjectId, core: services.core) }
                 }
             }
         } label: {
@@ -168,31 +182,35 @@ struct SubjectScreen: View {
     }
 }
 
+/// 详情加载前用 [route] 中的名称与封面占位.
 private struct SubjectHeader: View {
-    let subject: AniSubject
+    let subject: AniSubject?
+    let route: SubjectRoute
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 16) {
-                CoverImage(url: subject.imageUrl)
+                CoverImage(url: subject?.imageUrl ?? route.imageUrl)
                     .frame(width: 110, height: 156)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(subject.displayName)
+                    Text(subject?.displayName ?? route.name)
                         .font(.title3.bold())
                         .textSelection(.enabled)
-                    if subject.name != subject.displayName {
-                        Text(subject.name)
-                            .font(.subheadline)
+                    if let subject {
+                        if subject.name != subject.displayName {
+                            Text(subject.name)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        Text(subject.subtitleLine)
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
                     }
-                    Text(subject.subtitleLine)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
             }
-            if !subject.summary.isEmpty {
-                ExpandableText(text: subject.summary)
+            if let summary = subject?.summary, !summary.isEmpty {
+                ExpandableText(text: summary)
             }
         }
         .padding()

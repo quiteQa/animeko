@@ -17,6 +17,7 @@ struct AniNativeApp: App {
             RootView()
                 .environment(services)
                 .task { await services.observeSession() }
+                .task { await services.observeSettings() }
         }
     }
 }
@@ -27,6 +28,12 @@ private struct RootView: View {
             Tab("追番", systemImage: "play.square.stack") {
                 NavigationStack {
                     CollectionScreen()
+                        .subjectNavigation()
+                }
+            }
+            Tab("探索", systemImage: "sparkles.tv") {
+                NavigationStack {
+                    ExploreScreen()
                         .subjectNavigation()
                 }
             }
@@ -46,11 +53,28 @@ private struct RootView: View {
     }
 }
 
+/// 条目详情的导航目标. 只需 id; 名称与封面用于详情加载前的占位.
+struct SubjectRoute: Hashable {
+    let id: Int32
+    let name: String
+    let imageUrl: String
+
+    init(id: Int32, name: String, imageUrl: String) {
+        self.id = id
+        self.name = name
+        self.imageUrl = imageUrl
+    }
+
+    init(_ subject: AniSubject) {
+        self.init(id: subject.id, name: subject.displayName, imageUrl: subject.imageUrl)
+    }
+}
+
 extension View {
-    /// 让 `NavigationLink(value: AniSubject)` 跳转到条目详情.
+    /// 让 `NavigationLink(value: SubjectRoute)` 跳转到条目详情.
     func subjectNavigation() -> some View {
-        navigationDestination(for: AniSubject.self) { subject in
-            SubjectScreen(subject: subject)
+        navigationDestination(for: SubjectRoute.self) { route in
+            SubjectScreen(route: route)
         }
     }
 }
@@ -67,9 +91,18 @@ final class AppServices {
 
     var isLoggedIn: Bool { session?.loggedIn == true }
 
+    /// 设置. Kotlin 侧首次回调前为 `nil`.
+    private(set) var settings: AniSettings?
+
     func observeSession() async {
         for await session in core.sessionUpdates {
             self.session = session
+        }
+    }
+
+    func observeSettings() async {
+        for await settings in core.settings.settingsUpdates {
+            self.settings = settings
         }
     }
 }

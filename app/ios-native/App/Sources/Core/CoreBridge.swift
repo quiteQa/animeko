@@ -54,6 +54,33 @@ extension AniCore {
     }
 }
 
+extension AniCore {
+    var scheduleUpdates: AsyncStream<Observed<[AniScheduleDay]>> {
+        stream { yield in observeSchedule(listener: ScheduleListener(yield)) }
+    }
+}
+
+extension AniSettingsStore {
+    var settingsUpdates: AsyncStream<AniSettings> {
+        stream { yield in observeSettings(listener: SettingsListener(yield)) }
+    }
+
+    var danmakuFilterUpdates: AsyncStream<[AniDanmakuFilter]> {
+        stream { yield in observeDanmakuFilters(listener: DanmakuFiltersListener(yield)) }
+    }
+
+    var mediaSourceUpdates: AsyncStream<[AniMediaSourceItem]> {
+        stream { yield in observeMediaSources(listener: MediaSourcesListener(yield)) }
+    }
+}
+
+extension AniDownloads {
+    /// `subjectId` 为 0 时包含所有条目.
+    func downloadUpdates(subjectId: Int32 = 0) -> AsyncStream<[AniDownload]> {
+        stream { yield in observeDownloads(subjectId: subjectId, listener: DownloadsListener(yield)) }
+    }
+}
+
 struct LoginError: Error {
     /// Kotlin 侧的错误类型名, 如 `NetworkError`.
     let reason: String?
@@ -162,4 +189,35 @@ private final class LoginListener: NSObject, AniLoginListener {
         didFinish = true
         finished(success, errorMessage)
     }
+}
+
+private final class ScheduleListener: NSObject, AniScheduleListener {
+    private let block: (Observed<[AniScheduleDay]>) -> Void
+    init(_ block: @escaping (Observed<[AniScheduleDay]>) -> Void) { self.block = block }
+    func onSchedule(days: [AniScheduleDay]) { block(.value(days)) }
+    func onError(message: String) { block(.failure(message)) }
+}
+
+private final class SettingsListener: NSObject, AniSettingsListener {
+    private let block: (AniSettings) -> Void
+    init(_ block: @escaping (AniSettings) -> Void) { self.block = block }
+    func onSettings(settings: AniSettings) { block(settings) }
+}
+
+private final class DanmakuFiltersListener: NSObject, AniDanmakuFiltersListener {
+    private let block: ([AniDanmakuFilter]) -> Void
+    init(_ block: @escaping ([AniDanmakuFilter]) -> Void) { self.block = block }
+    func onFilters(filters: [AniDanmakuFilter]) { block(filters) }
+}
+
+private final class MediaSourcesListener: NSObject, AniMediaSourcesListener {
+    private let block: ([AniMediaSourceItem]) -> Void
+    init(_ block: @escaping ([AniMediaSourceItem]) -> Void) { self.block = block }
+    func onMediaSources(sources: [AniMediaSourceItem]) { block(sources) }
+}
+
+private final class DownloadsListener: NSObject, AniDownloadsListener {
+    private let block: ([AniDownload]) -> Void
+    init(_ block: @escaping ([AniDownload]) -> Void) { self.block = block }
+    func onDownloads(downloads: [AniDownload]) { block(downloads) }
 }
