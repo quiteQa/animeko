@@ -302,7 +302,7 @@ class AniCore internal constructor(
  */
 class AniSubscription internal constructor(private val job: Job) {
     fun cancel() {
-        job.cancel(CancellationException("AniSubscription cancelled"))
+        job.cancel()
     }
 }
 
