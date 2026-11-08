@@ -373,27 +373,31 @@ final class PlayerModel {
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main,
         ) { [weak self] time in
-            MainActor.assumeIsolated {
-                guard let self, phase == .playing else { return }
-                currentTime = time.seconds.isFinite ? time.seconds : 0
-                let itemDuration = player.currentItem?.duration.seconds ?? 0
-                duration = itemDuration.isFinite ? itemDuration : 0
-                if isPlaying {
-                    reportProgress()
-                    loadSkipSegmentsIfNeeded()
-                    updateAutoSkip()
-                }
-            }
+            // 回调在主队列上; 闭包体放进方法里, 避免在嵌套闭包里隐式使用 self
+            MainActor.assumeIsolated { self?.onPeriodicTime(time) }
         }
         rateObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let playing = player.timeControlStatus != .paused
-            Task { @MainActor in
-                guard let self else { return }
-                let paused = isPlaying && !playing
-                isPlaying = playing
-                if paused { reportProgress(force: true) }
-            }
+            Task { @MainActor [weak self] in self?.onPlayingChanged(playing) }
         }
+    }
+
+    private func onPeriodicTime(_ time: CMTime) {
+        guard phase == .playing else { return }
+        currentTime = time.seconds.isFinite ? time.seconds : 0
+        let itemDuration = player.currentItem?.duration.seconds ?? 0
+        duration = itemDuration.isFinite ? itemDuration : 0
+        if isPlaying {
+            reportProgress()
+            loadSkipSegmentsIfNeeded()
+            updateAutoSkip()
+        }
+    }
+
+    private func onPlayingChanged(_ playing: Bool) {
+        let paused = isPlaying && !playing
+        isPlaying = playing
+        if paused { reportProgress(force: true) }
     }
 
     /// 播放自然结束且离结尾足够近时, 按设置自动播放下一集.
@@ -404,16 +408,17 @@ final class PlayerModel {
             object: item,
             queue: .main,
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let position = player.currentTime().seconds
-                currentTime = position.isFinite ? position : currentTime
-                reportProgress(force: true)
-                guard settings()?.autoPlayNext == true,
-                      duration > 0, duration - currentTime < Self.autoNextTolerance else { return }
-                playNextEpisode(automatic: true)
-            }
+            MainActor.assumeIsolated { self?.onPlayedToEnd() }
         }
+    }
+
+    private func onPlayedToEnd() {
+        let position = player.currentTime().seconds
+        currentTime = position.isFinite ? position : currentTime
+        reportProgress(force: true)
+        guard settings()?.autoPlayNext == true,
+              duration > 0, duration - currentTime < Self.autoNextTolerance else { return }
+        playNextEpisode(automatic: true)
     }
 
     private static func describe(_ error: Error) -> String {
