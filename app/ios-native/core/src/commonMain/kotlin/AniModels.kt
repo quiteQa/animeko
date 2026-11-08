@@ -41,10 +41,106 @@ data class AniEpisode(
     val watched: Boolean,
 )
 
+/**
+ * @param collectionType 当前用户对条目的收藏状态.
+ * @param nextEpisodeId 下一集要看的剧集, 没有时为 `null`.
+ */
 data class AniSubjectDetail(
     val subject: AniSubject,
     val episodes: List<AniEpisode>,
+    val collectionType: AniCollectionType,
+    val nextEpisodeId: Int?,
 )
+
+enum class AniCollectionType {
+    WISH,
+    DOING,
+    DONE,
+    ON_HOLD,
+    DROPPED,
+    NOT_COLLECTED,
+}
+
+/**
+ * 收藏列表中的一项.
+ *
+ * @param continueKind 续看状态, 决定 [continueEpisode] 的含义.
+ * @param continueEpisode [AniContinueKind.IN_PROGRESS] 时为下一集序号, [AniContinueKind.CAUGHT_UP] 时为看到的序号,
+ * [AniContinueKind.NOT_ON_AIR] 时为开播日期, 其他为空字符串.
+ */
+data class AniCollectionItem(
+    val subject: AniSubject,
+    val collectionType: AniCollectionType,
+    val nextEpisodeId: Int?,
+    val continueKind: AniContinueKind,
+    val continueEpisode: String,
+)
+
+// 枚举名避开 Swift / Objective-C 关键字 (如 continue), 否则导出时会被改名.
+enum class AniContinueKind {
+    /** 还没看过任何一集 */
+    NOT_STARTED,
+
+    /** 尚未开播 */
+    NOT_ON_AIR,
+
+    /** 看到一半, 还有已播出的下一集 */
+    IN_PROGRESS,
+
+    /** 已看完全部已播出的剧集, 等待更新 */
+    CAUGHT_UP,
+
+    /** 全部看完 */
+    COMPLETED,
+}
+
+/**
+ * 登录状态.
+ *
+ * @param loggedIn 是否已登录 Ani 账号.
+ * @param bangumiConnected 是否已绑定 Bangumi, 收藏与进度同步需要绑定.
+ */
+data class AniSession(
+    val loggedIn: Boolean,
+    val bangumiConnected: Boolean,
+    val nickname: String,
+    val avatarUrl: String,
+)
+
+/**
+ * 一个数据源在本次查询中的状态.
+ *
+ * @param state `IDLE`, `WORKING`, `SUCCEED`, `FAILED`, `DISABLED`, `CAPTCHA_REQUIRED`, `RATE_LIMITED`, `ABANDONED`.
+ * @param resultCount 该数据源为本条目找到的资源数 (不按剧集筛选).
+ */
+data class AniMediaSourceStatus(
+    val instanceId: String,
+    val mediaSourceId: String,
+    val displayName: String,
+    val kind: String,
+    val state: String,
+    val resultCount: Int,
+)
+
+/**
+ * 选源偏好的一个维度.
+ *
+ * @param key [AniPreferenceKeys] 中的常量.
+ * @param available 当前候选资源中出现过的取值.
+ * @param selected 生效的取值 (用户选择或默认偏好), 没有时为 `null`.
+ */
+data class AniPreference(
+    val key: String,
+    val available: List<String>,
+    val selected: String?,
+)
+
+object AniPreferenceKeys {
+    const val ALLIANCE = "alliance"
+    const val RESOLUTION = "resolution"
+    const val SUBTITLE_LANGUAGE = "subtitleLanguage"
+    const val MEDIA_SOURCE = "mediaSource"
+}
 
 /**
  * 一个可供选择的资源.

@@ -14,6 +14,7 @@ import me.him188.ani.danmaku.api.DanmakuInfo
 import me.him188.ani.danmaku.api.DanmakuLocation
 import me.him188.ani.danmaku.api.DanmakuServiceId
 import me.him188.ani.datasources.api.PackedDate
+import me.him188.ani.datasources.api.topic.UnifiedCollectionType
 import org.openani.mediamp.source.MediaExtraFiles
 import org.openani.mediamp.source.Subtitle
 import org.openani.mediamp.source.UriMediaData
@@ -24,6 +25,13 @@ class MappersTest {
     @Test
     fun `valid date is formatted as year-month-day`() {
         assertEquals("2024-4-7", PackedDate(2024, 4, 7).toAniDateString())
+    }
+
+    @Test
+    fun `collection type round trips`() {
+        for (type in UnifiedCollectionType.entries) {
+            assertEquals(type, type.toAni().toUnified())
+        }
     }
 
     @Test

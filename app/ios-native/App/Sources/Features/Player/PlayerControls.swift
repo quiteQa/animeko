@@ -117,7 +117,7 @@ struct PlayerControls: View {
                 Spacer()
 
                 Button(action: onShowSources) {
-                    Label(model.selected?.mediaSourceId ?? "选择资源", systemImage: "square.stack")
+                    Label(model.selected.map { model.sourceName($0.mediaSourceId) } ?? "选择资源", systemImage: "square.stack")
                         .lineLimit(1)
                 }
             }

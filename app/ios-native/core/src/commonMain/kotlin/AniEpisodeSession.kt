@@ -30,25 +30,41 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import me.him188.ani.app.data.models.episode.allNames
+import me.him188.ani.app.data.models.preference.HlsAdFilteringMode
 import me.him188.ani.app.data.models.episode.displayName
+import me.him188.ani.app.data.repository.player.EpisodePlayHistoryRepository
+import me.him188.ani.app.data.repository.user.SettingsRepository
 import me.him188.ani.app.domain.danmaku.DanmakuRepository
+import me.him188.ani.app.domain.danmaku.DanmakuTextConversionSettings
 import me.him188.ani.app.domain.danmaku.SplitSeasonDanmakuMatcher
 import me.him188.ani.app.domain.episode.CreateMediaFetchSelectBundleFlowUseCase
+import me.him188.ani.app.domain.episode.GetEpisodeCollectionTypeUseCase
 import me.him188.ani.app.domain.episode.GetSubjectEpisodeInfoBundleFlowUseCase
 import me.him188.ani.app.domain.episode.MediaFetchSelectBundle
+import me.him188.ani.app.domain.episode.SetEpisodeCollectionTypeUseCase
 import me.him188.ani.app.domain.episode.SubjectEpisodeInfoBundle
 import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
+import me.him188.ani.app.domain.media.hls.HlsPlaybackOptions
+import me.him188.ani.app.domain.media.hls.HlsPlaybackPreparer
+import me.him188.ani.app.domain.media.hls.HlsPlaybackProxySession
 import me.him188.ani.app.domain.media.resolver.MediaResolutionException
 import me.him188.ani.app.domain.media.resolver.MediaResolver
 import me.him188.ani.app.domain.media.resolver.MediaSourceOpenException
 import me.him188.ani.app.domain.media.resolver.UnsupportedMediaException
 import me.him188.ani.app.domain.media.resolver.toEpisodeMetadata
+import me.him188.ani.app.domain.media.selector.MediaPreferenceItem
 import me.him188.ani.app.domain.media.selector.MediaSelectorAutoSelectUseCase
 import me.him188.ani.app.domain.media.selector.SelectTrigger
+import me.him188.ani.app.domain.mediasource.MediaSourceTags
+import me.him188.ani.app.domain.mediasource.instance.GetMediaSourceInstancesUseCase
+import me.him188.ani.app.domain.settings.GetDanmakuRegexFilterListFlowUseCase
+import me.him188.ani.app.domain.settings.GetVideoScaffoldConfigUseCase
+import me.him188.ani.danmaku.api.DanmakuServiceId
 import me.him188.ani.danmaku.api.provider.DanmakuFetchRequest
 import me.him188.ani.datasources.api.Media
+import me.him188.ani.datasources.api.topic.UnifiedCollectionType
+import me.him188.ani.datasources.api.topic.isDoneOrDropped
 import org.koin.core.Koin
 import org.openani.mediamp.source.UriMediaData
 import kotlin.coroutines.CoroutineContext
@@ -77,6 +93,15 @@ class AniEpisodeSession internal constructor(
 
     private val autoSelectUseCase: MediaSelectorAutoSelectUseCase = koin.get()
     private val danmakuRepository: DanmakuRepository = koin.get()
+    private val playHistoryRepository: EpisodePlayHistoryRepository = koin.get()
+    private val getEpisodeCollectionType: GetEpisodeCollectionTypeUseCase = koin.get()
+    private val setEpisodeCollectionType: SetEpisodeCollectionTypeUseCase = koin.get()
+    private val hlsPlaybackPreparer: HlsPlaybackPreparer = koin.get()
+    private val getVideoScaffoldConfig: GetVideoScaffoldConfigUseCase = koin.get()
+    private val getMediaSourceInstances: GetMediaSourceInstancesUseCase = koin.get()
+    private val settingsRepository: SettingsRepository = koin.get()
+    private val getDanmakuRegexFilterList: GetDanmakuRegexFilterListFlowUseCase = koin.get()
+    private val danmakuProcessor = DanmakuProcessor()
 
     // MediaResolver 在 Koin 中是 factory, 每个会话持有一个实例.
     private val mediaResolver: MediaResolver = koin.get()
@@ -92,6 +117,8 @@ class AniEpisodeSession internal constructor(
             .stateIn(scope, SharingStarted.Eagerly, null)
 
     private var resolveJob: Job? = null
+    private var hlsProxySession: HlsPlaybackProxySession? = null
+    private var markedWatched = false
 
     init {
         // MediaFetchSession 只在 cumulativeResults 被持续收集时查询, 停止收集会中断查询.
@@ -104,12 +131,99 @@ class AniEpisodeSession internal constructor(
 
     /**
      * 观察当前剧集经过滤与排序的候选资源. 查询过程中会随数据源返回而多次回调.
+     *
+     * @param preferredOnly 为 `true` 时只包含符合当前偏好 ([setPreference]) 的资源.
      */
-    fun observeCandidates(listener: AniCandidatesListener): AniSubscription = observe(
+    fun observeCandidates(preferredOnly: Boolean, listener: AniCandidatesListener): AniSubscription = observe(
         fetchSelect.filterNotNull()
-            .flatMapLatest { it.mediaSelector.filteredCandidatesMedia }
+            .flatMapLatest {
+                if (preferredOnly) it.mediaSelector.preferredCandidatesMedia else it.mediaSelector.filteredCandidatesMedia
+            }
             .map { list -> list.map { it.toCandidate() } },
     ) { listener.onCandidates(it) }
+
+    /**
+     * 观察每个数据源的查询状态.
+     */
+    fun observeSources(listener: AniSourcesListener): AniSubscription = observe(
+        fetchSelect.filterNotNull().flatMapLatest { bundle -> bundle.sourceStatusFlow() },
+    ) { listener.onSources(it) }
+
+    /**
+     * 重新查询一个失败或被放弃的数据源; 对已禁用的数据源则临时启用它.
+     */
+    fun retrySource(instanceId: String) {
+        val result = fetchSelect.value?.mediaFetchSession?.mediaSourceResults
+            ?.firstOrNull { it.instanceId == instanceId } ?: return
+        if (result.state.value is MediaSourceFetchState.Disabled) result.enable() else result.restart()
+    }
+
+    /**
+     * 观察选源偏好 (字幕组, 分辨率, 字幕语言, 数据源).
+     */
+    fun observePreferences(listener: AniPreferencesListener): AniSubscription = observe(
+        fetchSelect.filterNotNull().flatMapLatest { bundle ->
+            val selector = bundle.mediaSelector
+            combine(
+                selector.alliance.toAniPreference(AniPreferenceKeys.ALLIANCE),
+                selector.resolution.toAniPreference(AniPreferenceKeys.RESOLUTION),
+                selector.subtitleLanguageId.toAniPreference(AniPreferenceKeys.SUBTITLE_LANGUAGE),
+                selector.mediaSourceId.toAniPreference(AniPreferenceKeys.MEDIA_SOURCE),
+            ) { a, b, c, d -> listOf(a, b, c, d) }
+        },
+    ) { listener.onPreferences(it) }
+
+    /**
+     * 设置一个偏好维度. [value] 为 `null` 时清除该维度的偏好. 偏好会保存并影响之后的自动选择.
+     */
+    @Throws(Exception::class)
+    suspend fun setPreference(key: String, value: String?) {
+        val selector = fetchSelect.filterNotNull().first().mediaSelector
+        val item: MediaPreferenceItem<String> = when (key) {
+            AniPreferenceKeys.ALLIANCE -> selector.alliance
+            AniPreferenceKeys.RESOLUTION -> selector.resolution
+            AniPreferenceKeys.SUBTITLE_LANGUAGE -> selector.subtitleLanguageId
+            AniPreferenceKeys.MEDIA_SOURCE -> selector.mediaSourceId
+            else -> throw IllegalArgumentException("Unknown preference key: $key")
+        }
+        if (value == null) item.removePreference() else item.prefer(value)
+    }
+
+    /**
+     * 本集上次播放到的位置 (毫秒). 没有记录或已看完时为 0.
+     */
+    @Throws(Exception::class)
+    suspend fun resumePositionMillis(): Long {
+        return playHistoryRepository.getResumePositionMillisByEpisodeId(episodeId) ?: 0L
+    }
+
+    /**
+     * 上报播放进度. Swift 在播放中定期 (约每 5 秒) 以及暂停, 退出时调用.
+     *
+     * 保存播放位置; 正在播放且看到 90% 时把本集标记为看过 (每个会话最多一次), 规则与上游一致.
+     */
+    @Throws(Exception::class)
+    suspend fun reportPlayback(positionMillis: Long, durationMillis: Long, isPlaying: Boolean) {
+        if (!PlaybackProgressPolicy.shouldSave(positionMillis, durationMillis)) return
+        val info = infoBundle.first()
+        playHistoryRepository.saveOrUpdate(
+            episodeId = episodeId,
+            positionMillis = positionMillis.coerceAtMost(durationMillis),
+            subjectId = subjectId,
+            episodeSort = info.episodeInfo.sort.number,
+            subjectName = info.subjectInfo.displayName,
+            subjectImageUrl = info.subjectInfo.imageLarge,
+            episodeName = info.episodeInfo.displayName,
+            durationMillis = durationMillis,
+        )
+        if (isPlaying && !markedWatched && PlaybackProgressPolicy.shouldMarkWatched(positionMillis, durationMillis)) {
+            markedWatched = true
+            val current = getEpisodeCollectionType(subjectId, episodeId, allowNetwork = false)
+            if (current?.isDoneOrDropped() != true) {
+                setEpisodeCollectionType(subjectId, episodeId, UnifiedCollectionType.DONE)
+            }
+        }
+    }
 
     /**
      * 观察已选择的资源. 自动选择与 [select] 都会触发回调; 未选择时为 `null`.
@@ -155,18 +269,20 @@ class AniEpisodeSession internal constructor(
     /**
      * 解析当前选中的资源为可播放地址. 网页资源会在后台 `WKWebView` 中加载页面并拦截视频请求, 可能需要数秒.
      *
-     * 再次调用会释放上一次解析占用的资源.
+     * 按用户的 HLS 去广告设置, 需要时经上游的 HLS 本地代理过滤广告分片, 此时返回的是本地代理地址.
+     * 再次调用会释放上一次解析占用的资源 (包括本地代理).
      *
+     * @param startPositionMillis 预计的起播位置, 用作 HLS 代理预缓存的起点.
      * @throws AniPlaybackException 解析失败, [AniPlaybackException.reason] 说明原因.
      */
     @Throws(Exception::class)
-    suspend fun resolveSelected(): AniPlayable {
+    suspend fun resolveSelected(startPositionMillis: Long): AniPlayable {
         val bundle = fetchSelect.filterNotNull().first()
         val media = bundle.mediaSelector.selected.value
             ?: throw AniPlaybackException(AniPlaybackException.REASON_NOTHING_SELECTED, "No media selected")
         val episode = infoBundle.first().episodeCollectionInfo.episodeInfo
 
-        resolveJob?.cancel()
+        releaseResolved()
         val job = Job(scope.coroutineContext[Job])
         resolveJob = job
         val resolveScope = CoroutineScope(scope.coroutineContext + job)
@@ -180,42 +296,75 @@ class AniEpisodeSession internal constructor(
         } catch (e: MediaSourceOpenException) {
             throw AniPlaybackException(e.reason.name, e.message, e)
         }
-        return (data as? UriMediaData)?.toAniPlayable(media.originalTitle)
+        val uriData = data as? UriMediaData
             ?: throw AniPlaybackException(
                 AniPlaybackException.REASON_UNSUPPORTED,
                 "Resolved media data is not a URI: ${data::class.simpleName}",
             )
+        return prepareHls(uriData, media, startPositionMillis).toAniPlayable(media.originalTitle)
     }
 
     /**
-     * 从所有弹幕源获取本集弹幕, 按时间升序.
+     * 与上游 `PlayerSession` 相同的 HLS 去广告判断. 本客户端不做自动跳过 OP/ED, 因此不需要代理分片.
+     */
+    private suspend fun prepareHls(data: UriMediaData, media: Media, startPositionMillis: Long): UriMediaData {
+        val config = getVideoScaffoldConfig().first()
+        val options = HlsPlaybackOptions(
+            filterSegments = when (config.effectiveHlsAdFilteringMode) {
+                HlsAdFilteringMode.ALL -> true
+                HlsAdFilteringMode.SMART -> MediaSourceTags.HLS_ADS in mediaSourceTags(media.mediaSourceId)
+                HlsAdFilteringMode.OFF -> false
+            },
+            proxySegments = false,
+        )
+        if (!options.isEnabled) return data
+        val result = hlsPlaybackPreparer.prepare(data, options, startPositionMillis.takeIf { it > 0 })
+        hlsProxySession = result.session
+        return result.data
+    }
+
+    private suspend fun mediaSourceTags(mediaSourceId: String): List<String> {
+        return getMediaSourceInstances().first()
+            .find { it.mediaSourceId == mediaSourceId }
+            ?.config?.tags
+            .orEmpty()
+    }
+
+    private fun releaseResolved() {
+        resolveJob?.cancel()
+        resolveJob = null
+        hlsProxySession?.close()
+        hlsProxySession = null
+    }
+
+    /**
+     * 从所有弹幕源获取本集弹幕, 按时间升序. 已按用户设置做简繁转换并应用正则屏蔽词.
      */
     @Throws(Exception::class)
     suspend fun fetchDanmaku(): List<AniDanmaku> {
         val request = infoBundle.first().toDanmakuFetchRequest()
-        return danmakuRepository.fetchFromAllRemotes(request).first()
-            .flatMap { it.list }
+        val results = danmakuRepository.fetchFromAllRemotes(request).first()
+        val textConversion = DanmakuTextConversionSettings(
+            global = settingsRepository.danmakuConfig.flow.first().textConversion,
+            overrides = settingsRepository.danmakuTextConversionOverrides.flow.first()
+                .overrides.mapKeys { DanmakuServiceId(it.key) },
+        )
+        return danmakuProcessor.process(results, textConversion, getDanmakuRegexFilterList().first())
             .map { it.toAniDanmaku() }
-            .sortedBy { it.timeMillis }
     }
 
     /**
      * 结束会话: 停止查询, 释放解析占用的资源. 之后不再回调.
      */
     fun close() {
+        releaseResolved()
         scope.cancel()
     }
 
     private fun Media.toCandidate(): AniMediaCandidate = toAniMediaCandidate(playable = mediaResolver.supports(this))
 
-    private fun <T> observe(flow: Flow<T>, onValue: (T) -> Unit): AniSubscription {
-        val job = scope.launch {
-            flow.distinctUntilChanged().collect { value ->
-                withContext(callbackContext) { onValue(value) }
-            }
-        }
-        return AniSubscription(job)
-    }
+    private fun <T> observe(flow: Flow<T>, onValue: (T) -> Unit): AniSubscription =
+        scope.launchObserver(callbackContext, flow, onValue = onValue)
 }
 
 private fun MediaFetchSelectBundle.fetchProgressFlow(): Flow<AniFetchProgress> {
@@ -233,6 +382,32 @@ private fun MediaFetchSelectBundle.fetchProgressFlow(): Flow<AniFetchProgress> {
         )
     }
 }
+
+private fun MediaFetchSelectBundle.sourceStatusFlow(): Flow<List<AniMediaSourceStatus>> {
+    val results = mediaFetchSession.mediaSourceResults
+    if (results.isEmpty()) return flowOf(emptyList())
+    return combine(
+        combine(results.map { it.state }) { it.toList() },
+        mediaFetchSession.cumulativeResults,
+    ) { states, media ->
+        val counts = media.groupingBy { it.mediaSourceId }.eachCount()
+        results.zip(states) { result, state ->
+            AniMediaSourceStatus(
+                instanceId = result.instanceId,
+                mediaSourceId = result.mediaSourceId,
+                displayName = result.sourceInfo.displayName,
+                kind = result.kind.name,
+                state = state.toAniStateName(),
+                resultCount = counts[result.mediaSourceId] ?: 0,
+            )
+        }
+    }
+}
+
+private fun MediaPreferenceItem<String>.toAniPreference(key: String): Flow<AniPreference> =
+    combine(available, finalSelected) { available, selected ->
+        AniPreference(key = key, available = available, selected = selected)
+    }
 
 private fun SubjectEpisodeInfoBundle.toDanmakuFetchRequest(): DanmakuFetchRequest {
     val subject = subjectInfo
@@ -267,6 +442,14 @@ interface AniCandidatesListener {
 
 interface AniSelectionListener {
     fun onSelected(candidate: AniMediaCandidate?)
+}
+
+interface AniSourcesListener {
+    fun onSources(sources: List<AniMediaSourceStatus>)
+}
+
+interface AniPreferencesListener {
+    fun onPreferences(preferences: List<AniPreference>)
 }
 
 interface AniFetchProgressListener {

@@ -11,7 +11,10 @@ package me.him188.ani.app.iosnative.core
 
 import me.him188.ani.app.data.models.episode.EpisodeCollectionInfo
 import me.him188.ani.app.data.models.episode.displayName
+import me.him188.ani.app.data.models.subject.ContinueWatchingStatus
+import me.him188.ani.app.data.models.subject.SubjectCollectionInfo
 import me.him188.ani.app.data.models.subject.SubjectInfo
+import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
 import me.him188.ani.danmaku.api.DanmakuInfo
 import me.him188.ani.danmaku.api.DanmakuLocation
 import me.him188.ani.datasources.api.Media
@@ -75,3 +78,57 @@ internal fun DanmakuInfo.toAniDanmaku(): AniDanmaku = AniDanmaku(
 )
 
 internal fun PackedDate.toAniDateString(): String = if (isValid) "$year-$month-$day" else ""
+
+internal fun UnifiedCollectionType.toAni(): AniCollectionType = when (this) {
+    UnifiedCollectionType.WISH -> AniCollectionType.WISH
+    UnifiedCollectionType.DOING -> AniCollectionType.DOING
+    UnifiedCollectionType.DONE -> AniCollectionType.DONE
+    UnifiedCollectionType.ON_HOLD -> AniCollectionType.ON_HOLD
+    UnifiedCollectionType.DROPPED -> AniCollectionType.DROPPED
+    UnifiedCollectionType.NOT_COLLECTED -> AniCollectionType.NOT_COLLECTED
+}
+
+internal fun AniCollectionType.toUnified(): UnifiedCollectionType = when (this) {
+    AniCollectionType.WISH -> UnifiedCollectionType.WISH
+    AniCollectionType.DOING -> UnifiedCollectionType.DOING
+    AniCollectionType.DONE -> UnifiedCollectionType.DONE
+    AniCollectionType.ON_HOLD -> UnifiedCollectionType.ON_HOLD
+    AniCollectionType.DROPPED -> UnifiedCollectionType.DROPPED
+    AniCollectionType.NOT_COLLECTED -> UnifiedCollectionType.NOT_COLLECTED
+}
+
+internal fun SubjectCollectionInfo.toAniSubjectDetail(): AniSubjectDetail = AniSubjectDetail(
+    subject = subjectInfo.toAniSubject(),
+    episodes = episodes.map { it.toAniEpisode() },
+    collectionType = collectionType.toAni(),
+    nextEpisodeId = progressInfo.nextEpisodeIdToPlay,
+)
+
+internal fun SubjectCollectionInfo.toAniCollectionItem(): AniCollectionItem {
+    val (kind, episode) = when (val status = progressInfo.continueWatchingStatus) {
+        is ContinueWatchingStatus.Start -> AniContinueKind.NOT_STARTED to ""
+        is ContinueWatchingStatus.NotOnAir -> AniContinueKind.NOT_ON_AIR to status.airDate.toAniDateString()
+        is ContinueWatchingStatus.Continue -> AniContinueKind.IN_PROGRESS to (status.episodeSort?.toString() ?: "")
+        is ContinueWatchingStatus.Watched -> AniContinueKind.CAUGHT_UP to (status.episodeSort?.toString() ?: "")
+        is ContinueWatchingStatus.Done -> AniContinueKind.COMPLETED to ""
+    }
+    return AniCollectionItem(
+        subject = subjectInfo.toAniSubject(),
+        collectionType = collectionType.toAni(),
+        nextEpisodeId = progressInfo.nextEpisodeIdToPlay,
+        continueKind = kind,
+        continueEpisode = episode,
+    )
+}
+
+internal fun MediaSourceFetchState.toAniStateName(): String = when (this) {
+    MediaSourceFetchState.Idle -> "IDLE"
+    MediaSourceFetchState.Working -> "WORKING"
+    MediaSourceFetchState.Disabled -> "DISABLED"
+    is MediaSourceFetchState.Succeed -> "SUCCEED"
+    is MediaSourceFetchState.Failed -> "FAILED"
+    is MediaSourceFetchState.CaptchaRequired -> "CAPTCHA_REQUIRED"
+    is MediaSourceFetchState.RateLimited -> "RATE_LIMITED"
+    is MediaSourceFetchState.Abandoned -> "ABANDONED"
+    else -> this::class.simpleName.orEmpty().uppercase()
+}

@@ -85,9 +85,6 @@ struct SearchScreen: View {
         .navigationTitle("搜索")
         .searchable(text: $model.query, prompt: "番剧名称")
         .onSubmit(of: .search) { model.submit(core: services.core) }
-        .navigationDestination(for: AniSubject.self) { subject in
-            SubjectScreen(subject: subject)
-        }
     }
 }
 

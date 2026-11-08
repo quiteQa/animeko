@@ -91,7 +91,7 @@ private struct PlayerStatusView: View {
         case .fetching:
             status(title: "正在查找资源", detail: progress.map { "已查询 \($0.completed)/\($0.total) 个数据源 · 找到 \($0.candidateCount) 个资源" })
         case .resolving:
-            status(title: "正在解析视频", detail: selected.map { "\($0.mediaSourceId) · \($0.title)" })
+            status(title: "正在解析视频", detail: selected.map { $0.title })
         case .noSource:
             message(title: "没有找到可播放的资源", systemImage: "rectangle.slash")
         case .failed(let reason):

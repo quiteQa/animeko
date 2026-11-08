@@ -14,7 +14,8 @@ app/ios-native/
     ├── Podfile
     ├── Sources/
     │   ├── Core/          AniCore 的 Swift 适配 (observe* → AsyncStream)
-    │   └── Features/      Search, Subject, Player, Danmaku
+    │   ├── Common/        跨页面的文案与格式
+    │   └── Features/      Collection, Search, Subject, Player, Danmaku, Account
     └── Tests/             不依赖 AniCore 的纯 Swift 单元测试
 ```
 
@@ -116,9 +117,25 @@ open AnimekoNative.xcworkspace
 
 Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCore.
 
+## 功能 (P1 + P2)
+
+| 页面 | 内容 | 复用的上游逻辑 |
+| --- | --- | --- |
+| 追番 | 按收藏类型列出, 续看进度, 一键播放下一集, 下拉刷新 | `SubjectCollectionRepository` 的最近更新收藏与续看状态 |
+| 搜索 | 系统搜索栏, 分页 | `AniSubjectSearchService` |
+| 条目详情 | 收藏状态菜单, 继续观看, 剧集左滑 / 长按标记看过 | `SetSubjectCollectionTypeOrDeleteUseCase`, `EpisodeCollectionRepository` |
+| 播放 | 自动选源, 续播上次位置, 每 5 秒及暂停/退出时保存进度, 看到 90% 自动标记看过, 画中画, HLS 去广告 | 选源用例, `MediaResolver`, `EpisodePlayHistoryRepository`, `HlsPlaybackPreparer`, 标记规则同 `MarkAsWatchedExtension` |
+| 选源面板 | 全部 / 符合偏好的资源, 字幕组 · 分辨率 · 字幕 · 数据源四维偏好, 每个数据源的查询状态与重试 | `MediaSelector` 的偏好项, `MediaFetchSession` |
+| 弹幕 | 清理文本, 简繁转换, 正则屏蔽词, 按轨道排布 | `DanmakuRepository`, `DanmakuTextConverter`, `TimeBasedDanmakuSession.filterList` |
+| 我的 | Bangumi 授权登录 / 绑定, 退出登录 | `OAuthConfigurator`, `BangumiOAuthClient` |
+
+登录流程: Kotlin 侧向服务器申请授权链接, Swift 在 App 内 Safari 中打开; 用户授权后 Kotlin 轮询到结果并写入会话.
+关闭授权页即取消本次登录.
+
 ## 已知差异与待办
 
-- 未接入上游的 HLS 本地代理 (`HlsPlaybackPreparer`, 用于去广告与分片预取). 依赖它的网页源在 iOS 原生客户端上可能卡顿或带广告.
-- 弹幕未做简繁转换与屏蔽词过滤 (上游在 `DanmakuLoader` / 播放页里完成).
-- 未处理 OP/ED 跳过, 播放进度记忆, 剧集收藏同步 (P2).
-- 选源面板是简版列表; 自动匹配 / 手动查找 / BT 三种模式在 P2 实现.
+- 不做自动跳过 OP/ED, 因此 HLS 代理只用于去广告, 不代理分片也不预缓存.
+- 不自动切换到下一集.
+- 选源面板没有上游的 "手动查找" 与 "BT 列表" 两种模式; 需要验证码的数据源在 iOS 上无法交互 (上游 iOS 同样不支持).
+- 弹幕没有按来源的开关与时间偏移 (上游 `DanmakuOriginConfig`), 也不能发送弹幕.
+- 设置, 探索, 评论, 缓存管理在 P3.
