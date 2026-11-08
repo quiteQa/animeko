@@ -1,0 +1,10 @@
+# AniCore (Kotlin facade) 以 Kotlin CocoaPods 插件生成的本地 pod 集成, 其原生依赖 (Sentry, onnxruntime)
+# 由 CocoaPods 一并安装. 与上游 app/ios/Podfile 的做法相同, 只是 pod 换成 facade.
+
+target 'AnimekoNative' do
+  use_frameworks!
+  platform :ios, '26.0'
+  pod 'AniCore', :path => '../core'
+
+  pod 'Sentry', '~> 8.49.0'
+end

@@ -1,0 +1,62 @@
+# XcodeGen 工程定义. 生成 Xcode 工程: `xcodegen generate && pod install`, 然后打开 AnimekoNative.xcworkspace.
+# 完整步骤见 ../README.md.
+name: AnimekoNative
+options:
+  bundleIdPrefix: me.him188.ani.native
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  AnimekoNative:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      # 上游的原生播放视图与 Metal 画质增强, 直接引用不复制
+      - path: ../../ios/Animeko/EnhancedPlayerView.swift
+        group: Upstream
+      - path: ../../ios/Animeko/VideoEnhancementRenderer.swift
+        group: Upstream
+      - path: ../../../utils/video-enhancement-shader-provider/src/commonMain/composeResources/files/shaders
+        group: Upstream
+        buildPhase: resources
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Animeko
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        # 网页数据源与自建媒体库常见 http 地址
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.him188.ani.native.app
+        TARGETED_DEVICE_FAMILY: "1,2"
+    # AniCore 由 CocoaPods 集成 (见 Podfile); MediampFFmpegKit 由 Gradle 解压, 是动态 framework, 需要随 App 嵌入
+    dependencies:
+      - framework: ../../../utils/http-downloader/build/mediamp-ffmpeg/apple-runtime/MediampFFmpegKit.xcframework
+        embed: true
+  AnimekoNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+      - path: Sources/Features/Danmaku/DanmakuTrackAllocator.swift
+    dependencies: []
+schemes:
+  AnimekoNative:
+    build:
+      targets:
+        AnimekoNative: all
+        AnimekoNativeTests: [test]
+    test:
+      targets:
+        - AnimekoNativeTests
