@@ -18,13 +18,17 @@ plugins {
     id("ani.kmp-library")
 }
 
+/**
+ * 是否构建 iOS framework. 与 :app:shared:application 配置 CocoaPods 的条件相同:
+ * application 的 iosMain 依赖 onnxruntime 的 cinterop, 只有在这个条件下才存在.
+ */
+val buildsIosFramework = enableIos && buildIosFramework && getOs() == Os.MacOS
+
 kotlin {
     android {
         namespace = "me.him188.ani.app.iosnative.core"
     }
     sourceSets.commonMain.dependencies {
-        // Koin 装配 (getCommonKoinModule / getIosModules) 位于 application 模块, 直接复用而不复制.
-        implementation(projects.app.shared.application)
         implementation(projects.app.shared.appData)
         implementation(projects.app.shared.appPlatform)
         implementation(projects.utils.bbcode)
@@ -34,12 +38,24 @@ kotlin {
     sourceSets.commonTest.dependencies {
         implementation(libs.kotlinx.coroutines.test)
     }
+    if (enableIos) {
+        sourceSets.iosMain {
+            if (buildsIosFramework) {
+                // 启动入口 (startAniCore) 复用 application 的 Koin 装配 (getCommonKoinModule / getIosModules), 不复制.
+                dependencies { implementation(projects.app.shared.application) }
+            } else {
+                // 不构建 framework 时 (如只开启 ani.enable.ios 的 CI) 不编译 iosMain:
+                // 否则会连带编译 application 的 iosMain, 而它需要的 onnxruntime cinterop 此时不存在.
+                kotlin.setSrcDirs(emptyList<Any>())
+            }
+        }
+    }
 }
 
 // 原生依赖与 :app:shared:application 的 iOS framework 相同: application 的 klib 引用了 Sentry, onnxruntime
 // 与 MediampFFmpegKit, 链接 AniCore 时必须提供它们. cinterop 已由上游模块生成, 这里只链接 (linkOnly).
 kotlin {
-    if (enableIos && buildIosFramework && getOs() == Os.MacOS) {
+    if (buildsIosFramework) {
         extensions.configure<CocoapodsExtension> {
             name = "AniCore"
             summary = "Kotlin facade for the Animeko SwiftUI client"
