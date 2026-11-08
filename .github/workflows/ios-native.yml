@@ -1,0 +1,119 @@
+# SwiftUI 原生 iOS 客户端 (app/ios-native) 的未签名 IPA 构建.
+# 手写的独立 workflow, 不由 src.main.kts 生成.
+# 产物未签名, 需要用 SideStore / AltStore 等工具用自己的 Apple ID 重签后安装.
+
+name: 'iOS Native IPA'
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+    - 'claude/**'
+    paths:
+    - 'app/ios-native/**'
+    - '.github/workflows/ios-native.yml'
+concurrency:
+  group: 'ios-native-${{ github.ref_name }}'
+  cancel-in-progress: true
+jobs:
+  build-ipa:
+    name: 'Build unsigned IPA'
+    runs-on: 'macos-26'
+    timeout-minutes: 150
+    permissions:
+      contents: 'read'
+    env:
+      JBR_FILE: 'jbrsdk_jcef-21.0.11-osx-aarch64-b1163.125.tar.gz'
+    steps:
+    - uses: 'actions/checkout@v4'
+      with:
+        submodules: 'recursive'
+
+    - name: 'Free space'
+      continue-on-error: true
+      run: 'chmod +x ./ci-helper/free-space-macos.sh && ./ci-helper/free-space-macos.sh'
+
+    - name: 'Configure local.properties'
+      run: |
+        rm -f local.properties
+        echo "ani.enable.ios=true" >> local.properties
+        echo "ani.build.framework=true" >> local.properties
+        echo "kotlin.native.ignoreDisabledTargets=true" >> local.properties
+
+    - name: 'Download JBR 21'
+      run: |
+        url="https://cache-redirector.jetbrains.com/intellij-jbr/$JBR_FILE"
+        wget -q --tries=3 -O "$RUNNER_TEMP/$JBR_FILE" "$url"
+        wget -q --tries=3 -O "$RUNNER_TEMP/jbr.checksum" "$url.checksum"
+        expected=$(awk '{print $1}' "$RUNNER_TEMP/jbr.checksum")
+        actual=$(shasum -a 512 "$RUNNER_TEMP/$JBR_FILE" | awk '{print $1}')
+        test "$expected" = "$actual"
+
+    - name: 'Setup JBR 21'
+      uses: 'gmitch215/setup-java@6d2c5e1f82f180ae79f799f0ed6e3e5efb4e664d'
+      with:
+        java-version: '21'
+        distribution: 'jdkfile'
+        jdkFile: '${{ runner.temp }}/${{ env.JBR_FILE }}'
+      env:
+        GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+
+    - name: 'Show toolchain'
+      run: |
+        xcodebuild -version
+        java -version
+        pod --version
+        df -h
+
+    - name: 'Prepare FFmpeg runtime and AniCore podspec'
+      run: >-
+        ./gradlew
+        :utils:http-downloader:extractMediampFfmpegAppleRuntime
+        :app:ios-native:core:podspec
+        "-Dorg.gradle.jvmargs=-Xmx5g"
+        "-Dkotlin.daemon.jvm.options=-Xmx5g"
+
+    - name: 'Generate Xcode project and install pods'
+      working-directory: 'app/ios-native/App'
+      run: |
+        brew install xcodegen
+        xcodegen generate
+        pod install
+
+    - name: 'Archive (unsigned)'
+      working-directory: 'app/ios-native/App'
+      # CocoaPods 的脚本阶段在这里调用 Gradle 编译并链接 AniCore
+      run: >-
+        set -o pipefail &&
+        xcodebuild archive
+        -workspace AnimekoNative.xcworkspace
+        -scheme AnimekoNative
+        -configuration Debug
+        -sdk iphoneos
+        -destination 'generic/platform=iOS'
+        -archivePath "$RUNNER_TEMP/AnimekoNative.xcarchive"
+        CODE_SIGNING_ALLOWED=NO
+        CODE_SIGNING_REQUIRED=NO
+        CODE_SIGN_IDENTITY=""
+        | tee "$RUNNER_TEMP/xcodebuild.log"
+
+    - name: 'Package IPA'
+      run: |
+        mkdir -p "$RUNNER_TEMP/ipa/Payload"
+        cp -R "$RUNNER_TEMP/AnimekoNative.xcarchive/Products/Applications/AnimekoNative.app" "$RUNNER_TEMP/ipa/Payload/"
+        (cd "$RUNNER_TEMP/ipa" && zip -qry ../AnimekoNative-unsigned.ipa Payload)
+        ls -lh "$RUNNER_TEMP/AnimekoNative-unsigned.ipa"
+
+    - name: 'Upload IPA'
+      uses: 'actions/upload-artifact@v4'
+      with:
+        name: 'AnimekoNative-unsigned-ipa'
+        path: '${{ runner.temp }}/AnimekoNative-unsigned.ipa'
+        if-no-files-found: 'error'
+
+    - name: 'Upload build log'
+      if: '${{ failure() }}'
+      uses: 'actions/upload-artifact@v4'
+      with:
+        name: 'xcodebuild-log'
+        path: '${{ runner.temp }}/xcodebuild.log'
+        if-no-files-found: 'ignore'
