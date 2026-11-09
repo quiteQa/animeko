@@ -63,24 +63,22 @@ private struct TrendingGrid: View {
     let model: ExploreModel
     @Environment(AppServices.self) private var services
 
+    /// 固定三列, 行列间距相同.
+    private static let spacing: CGFloat = 12
+    private static let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: 3)
+
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 12)], spacing: 16) {
+            LazyVGrid(columns: Self.columns, spacing: Self.spacing) {
                 ForEach(model.trending, id: \.id) { subject in
                     NavigationLink(value: SubjectRoute(subject)) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            CoverImage(url: subject.imageUrl)
-                                .aspectRatio(0.7, contentMode: .fit)
-                            Text(subject.displayName)
-                                .font(.footnote)
-                                .lineLimit(2, reservesSpace: true)
-                                .foregroundStyle(.primary)
-                        }
+                        PosterCard(title: subject.displayName, imageUrl: subject.imageUrl)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
         .refreshable { await model.loadTrending(core: services.core) }
         .overlay {
@@ -165,6 +163,61 @@ private struct ScheduleView: View {
 ///
 /// 时间列宽由隐藏的模板文字 "88:88" 决定 (等宽数字, 随动态字体缩放), 不随实际时间文字长短变化;
 /// 封面固定尺寸; 文字列占满剩余宽度. 各列在行内垂直居中, 行高至少为封面高度, 因此各行等高.
+/// 标题嵌入封面的番剧卡片.
+///
+/// 卡片尺寸只由列宽和固定宽高比决定: 图片在占位底色上按比例填满并裁剪, 渐变与标题都是叠加层,
+/// 因此标题行数不影响卡片尺寸. 封面, 渐变和标题一起裁切在圆角内.
+private struct PosterCard: View {
+    let title: String
+    let imageUrl: String
+
+    static let aspectRatio: CGFloat = 0.7
+    static let cornerRadius: CGFloat = 16
+
+    @ScaledMetric(relativeTo: .subheadline) private var titleInset: CGFloat = 10
+
+    var body: some View {
+        Rectangle()
+            .fill(.quaternary)
+            .aspectRatio(Self.aspectRatio, contentMode: .fit)
+            .overlay {
+                AsyncImage(url: URL(string: imageUrl)) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.clear
+                }
+            }
+            .overlay { Self.bottomScrim }
+            .overlay(alignment: .bottomLeading) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+                    .padding(titleInset)
+            }
+            .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
+            .contentShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+    }
+
+    /// 覆盖卡片下方约三分之一的渐变: 从完全透明缓慢加深到半透明黑色, 多个色标让上缘没有明显分界.
+    private static let bottomScrim = LinearGradient(
+        stops: [
+            .init(color: .black.opacity(0), location: 0.62),
+            .init(color: .black.opacity(0.08), location: 0.70),
+            .init(color: .black.opacity(0.22), location: 0.79),
+            .init(color: .black.opacity(0.40), location: 0.88),
+            .init(color: .black.opacity(0.58), location: 1.0),
+        ],
+        startPoint: .top,
+        endPoint: .bottom,
+    )
+}
+
 private struct ScheduleRow: View {
     let item: AniScheduleItem
 
