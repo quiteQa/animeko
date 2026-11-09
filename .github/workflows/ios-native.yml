@@ -12,7 +12,8 @@ on:
     - 'app/ios-native/**'
     - '.github/workflows/ios-native.yml'
 concurrency:
-  group: 'ios-native-${{ github.ref_name }}'
+  # 手动触发与推送触发分属不同的组: 手动构建不会取消正在进行的推送构建, 反之亦然
+  group: 'ios-native-${{ github.ref_name }}-${{ github.event_name }}'
   cancel-in-progress: true
 jobs:
   build-ipa:
