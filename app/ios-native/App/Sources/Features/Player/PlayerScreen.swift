@@ -1,9 +1,10 @@
 import AniCore
 import AVKit
+import Combine
 import SwiftUI
 
 /// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个 `AVPlayer` 的全屏视图:
-/// 关闭全屏回到播放页, 播放继续.
+/// 关闭全屏回到播放页, 播放继续. iPhone 上全屏期间界面横屏.
 struct PlayerScreen: View {
     @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
@@ -13,6 +14,7 @@ struct PlayerScreen: View {
     @State private var showsComments = false
     @State private var pictureInPicture: AVPictureInPictureController?
     @State private var hideControlsTask: Task<Void, Never>?
+    @State private var heldLandscape = false
 
     var body: some View {
         ZStack {
@@ -97,6 +99,16 @@ struct PlayerScreen: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.pendingSkip?.name)
         .task { scheduleHideControls() }
+        .onAppear { OrientationLock.enterLandscape() }
+        .onDisappear { OrientationLock.restorePortrait() }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            // 横持过手机之后再竖过来, 即退出全屏回到播放页
+            switch UIDevice.current.orientation {
+            case .landscapeLeft, .landscapeRight: heldLandscape = true
+            case .portrait where heldLandscape: close()
+            default: break
+            }
+        }
     }
 
     private func close() {

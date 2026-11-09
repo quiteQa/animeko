@@ -4,6 +4,7 @@ import SwiftUI
 
 @main
 struct AniNativeApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var services = AppServices()
 
     init() {
