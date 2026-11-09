@@ -51,6 +51,12 @@ struct PlayerControls: View {
 
             Spacer()
 
+            PlayerMoreMenu(model: model) {
+                Image(systemName: "ellipsis")
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+
             if canStartPictureInPicture {
                 Button(action: onPictureInPicture) {
                     Image(systemName: "pip.enter")

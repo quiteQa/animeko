@@ -53,6 +53,13 @@ struct SettingsScreen: View {
                 Text("仅标记了广告的数据源").tag("SMART")
                 Text("关闭").tag("OFF")
             }
+            Picker("默认画质增强", selection: binding(settings.videoEnhancementDefaultMode) {
+                try await store.setVideoEnhancementDefaultMode(mode: $0)
+            }) {
+                ForEach(VideoEnhancementMode.menuOrder) { mode in
+                    Text(mode.title).tag(mode.settingValue)
+                }
+            }
             Toggle("看完 90% 自动标记看过", isOn: binding(settings.autoMarkDone) { try await store.setAutoMarkDone(value: $0) })
             Toggle("自动跳过 OP/ED", isOn: binding(settings.autoSkipOpEd) { try await store.setAutoSkipOpEd(value: $0) })
             Toggle("自动播放下一集", isOn: binding(settings.autoPlayNext) { try await store.setAutoPlayNext(value: $0) })

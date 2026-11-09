@@ -20,8 +20,13 @@ struct PlayerScreen: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            PlayerSurface(player: model.player) { pictureInPicture = $0 }
-                .ignoresSafeArea()
+            PlayerSurface(
+                player: model.player,
+                enhancementMode: model.enhancementMode,
+                onEnhancementUnavailable: enhancementUnavailable,
+                onPictureInPictureReady: { pictureInPicture = $0 },
+            )
+            .ignoresSafeArea()
 
             DanmakuOverlay(
                 danmaku: model.visibleDanmaku(settings: services.settings),
@@ -33,6 +38,13 @@ struct PlayerScreen: View {
 
             PlayerStatusView(phase: model.phase, progress: model.progress, selected: model.selected) {
                 showsSourcePicker = true
+            }
+
+            if model.showsStats {
+                PlayerStatsOverlay(model: model)
+                    .padding(.top, controlsVisible ? 76 : 16)
+                    .padding(.leading, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
 
             if controlsVisible {
@@ -109,6 +121,12 @@ struct PlayerScreen: View {
             default: break
             }
         }
+    }
+
+    private func enhancementUnavailable() {
+        guard model.enhancementMode != .off else { return }
+        model.enhancementMode = .off
+        model.toastMessage = "当前视频无法使用画质增强"
     }
 
     private func close() {

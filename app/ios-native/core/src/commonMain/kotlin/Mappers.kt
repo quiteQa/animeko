@@ -61,15 +61,17 @@ internal fun Media.toAniMediaCandidate(playable: Boolean): AniMediaCandidate = A
     subtitleLanguages = properties.subtitleLanguageIds,
     kind = kind.name,
     playable = playable,
+    originalUrl = originalUrl,
 )
 
-internal fun UriMediaData.toAniPlayable(title: String): AniPlayable = AniPlayable(
+internal fun UriMediaData.toAniPlayable(title: String, sourceUrl: String = uri): AniPlayable = AniPlayable(
     url = uri,
     headers = headers,
     subtitles = extraFiles.subtitles.map {
         AniSubtitle(url = it.uri, language = it.language, mimeType = it.mimeType)
     },
     title = title,
+    sourceUrl = sourceUrl,
 )
 
 internal fun DanmakuInfo.toAniDanmaku(): AniDanmaku = AniDanmaku(

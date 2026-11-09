@@ -37,6 +37,12 @@ final class PlayerModel {
     private(set) var duration: TimeInterval = 0
     private(set) var isPlaying = false
     var isDanmakuEnabled = true
+    /// 画质增强档位, 同时作用于内嵌与全屏画面.
+    var enhancementMode: VideoEnhancementMode = .off
+    /// 是否在画面上显示播放信息.
+    var showsStats = false
+    /// 当前正在播放的地址; 外部链接使用其中的原始播放地址.
+    private(set) var playable: AniPlayable?
     /// 一次性的提示 (缓存结果, 自动下一集等), 显示后由视图清除.
     var toastMessage: String?
 
@@ -81,7 +87,10 @@ final class PlayerModel {
         guard self.core == nil else { return }
         self.core = core
         self.settings = settings
-        if let current = settings() { isDanmakuEnabled = current.danmakuEnabled }
+        if let current = settings() {
+            isDanmakuEnabled = current.danmakuEnabled
+            enhancementMode = VideoEnhancementMode(setting: current.videoEnhancementDefaultMode)
+        }
         observePlayer()
         openSession()
     }
@@ -283,6 +292,7 @@ final class PlayerModel {
         sources = []
         preferences = []
         danmaku = []
+        playable = nil
         currentTime = 0
         duration = 0
         nextEpisode = nil
@@ -321,6 +331,7 @@ final class PlayerModel {
                 )
                 let item = AVPlayerItem(asset: asset)
                 player.replaceCurrentItem(with: item)
+                self.playable = playable
                 observeEnd(of: item)
                 // 换源后时间轴可能不同, 重新加载跳过片段
                 resetSkipState()

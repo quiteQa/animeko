@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.map
 import me.him188.ani.app.data.models.danmaku.DanmakuRegexFilter
 import me.him188.ani.app.data.models.preference.HlsAdFilteringMode
 import me.him188.ani.app.data.models.preference.NsfwMode
+import me.him188.ani.app.data.models.preference.VideoEnhancementDefaultMode
 import me.him188.ani.app.data.repository.player.DanmakuRegexFilterRepository
 import me.him188.ani.app.data.repository.user.SettingsRepository
 import me.him188.ani.app.domain.media.fetch.MediaSourceManager
@@ -65,6 +66,7 @@ class AniSettingsStore internal constructor(
             opEdSkipSeconds = video.opEdSkipDuration.inWholeSeconds.toInt(),
             autoPlayNext = video.autoPlayNext,
             rememberManualSelection = selector.rememberManualSelection,
+            videoEnhancementDefaultMode = video.videoEnhancementDefaultMode.name,
         )
     }
 
@@ -111,6 +113,13 @@ class AniSettingsStore internal constructor(
     @Throws(Exception::class)
     suspend fun setAutoPlayNext(value: Boolean) {
         settings.videoScaffoldConfig.update { copy(autoPlayNext = value) }
+    }
+
+    /** @param mode `OFF`, `PERFORMANCE` 或 `QUALITY`. */
+    @Throws(Exception::class)
+    suspend fun setVideoEnhancementDefaultMode(mode: String) {
+        val value = VideoEnhancementDefaultMode.valueOf(mode)
+        settings.videoScaffoldConfig.update { copy(videoEnhancementDefaultMode = value) }
     }
 
     /** @param mode `HIDE`, `BLUR` 或 `DISPLAY`. */

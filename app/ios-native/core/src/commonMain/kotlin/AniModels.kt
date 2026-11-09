@@ -158,6 +158,8 @@ data class AniMediaCandidate(
     val subtitleLanguages: List<String>,
     val kind: String,
     val playable: Boolean,
+    /** 资源所在的网页地址 (外部链接中的「原网页」). */
+    val originalUrl: String,
 )
 
 /**
@@ -186,6 +188,8 @@ data class AniPlayable(
     val headers: Map<String, String>,
     val subtitles: List<AniSubtitle>,
     val title: String,
+    /** 解析得到的原始播放地址. HLS 去广告时 [url] 指向本地处理后的播放列表, 外部链接使用本地址. */
+    val sourceUrl: String,
 )
 
 enum class AniDanmakuLocation {
@@ -281,6 +285,8 @@ data class AniSettings(
     val opEdSkipSeconds: Int,
     val autoPlayNext: Boolean,
     val rememberManualSelection: Boolean,
+    /** 进入播放器时的画质增强档位: `OFF`, `PERFORMANCE` 或 `QUALITY`. */
+    val videoEnhancementDefaultMode: String,
 )
 
 /**

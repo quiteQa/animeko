@@ -131,6 +131,8 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 | 搜索 | 系统搜索栏, 分页 | `AniSubjectSearchService` |
 | 条目详情 | 收藏状态菜单, 继续观看, 剧集左滑 / 长按标记看过 | `SetSubjectCollectionTypeOrDeleteUseCase`, `EpisodeCollectionRepository` |
 | 播放 | 自动选源, 续播上次位置, 每 5 秒及暂停/退出时保存进度, 看到 90% 自动标记看过, 画中画, HLS 去广告 | 选源用例, `MediaResolver`, `EpisodePlayHistoryRepository`, `HlsPlaybackPreparer`, 标记规则同 `MarkAsWatchedExtension` |
+| 播放页 | 布局同上游竖屏剧集页: 视频下方「详情 / 评论」, 详情含番剧名与收藏, 数据源摘要, 弹幕摘要, 横向剧集列表 (长按标记看过) 与全部剧集网格; 全屏时 iPhone 自动横屏 | 上游 `EpisodeDetails`, `MediaSelectorSummaryBanner`, `EpisodeListSection` |
+| 画质增强 / 播放信息 / 外部链接 | 更多选项菜单中切换画质增强 (性能优先 / 最高质量 / 关闭, 默认档位可在设置中修改), 显示播放信息 (分辨率, 帧率, 编码, 码率, 实时输入, 丢帧), 复制或访问视频流链接与数据源页面 | 上游 `app/ios` 的 `EnhancedPlayerView` (Metal), `PlayerStatsOverlay`, `ShareEpisodeDropdown` 的行为 |
 | OP/ED 与下一集 | 按服务器汇总的跳过点自动跳过 (开始前 5 秒提示, 可取消), 手动跳过按钮 (上报跳过点), 播完自动播放下一集, 下一集按钮; 在同一播放页内切换剧集 | `AutoSkipRepository`, 片段与跳过规则同上游 `PlayerSkipOpEdState`, 下一集规则同 `SwitchNextEpisodeExtension` |
 | 选源面板 | 全部 / 符合偏好的资源, 字幕组 · 分辨率 · 字幕 · 数据源四维偏好, 每个数据源的查询状态与重试 | `MediaSelector` 的偏好项, `MediaFetchSession` |
 | 手动查找 | 选源 (下拉), 关键字搜索 (按源缓存结果), 打开条目选线路与剧集 (预选当前集), "记住选择" 开关; 记住时之后每集按线路位置自动选择 | 数据源浏览协议, `preselectedBrowseEpisodeIndex`, `ManualBrowseMemoryRepository`, `ReplayBrowseMemoryUseCase` |

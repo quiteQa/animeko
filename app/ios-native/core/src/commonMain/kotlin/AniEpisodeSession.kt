@@ -523,7 +523,8 @@ class AniEpisodeSession internal constructor(
                 AniPlaybackException.REASON_UNSUPPORTED,
                 "Resolved media data is not a URI: ${data::class.simpleName}",
             )
-        return prepareHls(uriData, media, startPositionMillis).toAniPlayable(media.originalTitle)
+        return prepareHls(uriData, media, startPositionMillis)
+            .toAniPlayable(media.originalTitle, sourceUrl = uriData.uri)
     }
 
     /**

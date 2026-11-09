@@ -3,17 +3,18 @@ import AVKit
 import Combine
 import SwiftUI
 
-/// 播放页: 顶部是内嵌的 16:9 视频, 下方切换「选集」与「评论」.
+/// 播放页, 布局与上游 Animeko 的竖屏剧集页一致: 顶部 16:9 视频, 下方「详情 / 评论」两页.
 ///
+/// 「详情」依次是番剧名与收藏按钮, 数据源摘要, 弹幕摘要和横向的剧集列表.
 /// 页面持有 `PlayerModel` 与播放会话; 全屏只是同一个 `AVPlayer` 的另一个视图, 退出全屏后回到这里继续播放.
 /// 离开页面 (返回) 时才结束播放. iPhone 横过来时自动进入全屏.
 struct EpisodePlayerPage: View {
     fileprivate enum Tab: Hashable, CaseIterable {
-        case episodes, comments
+        case details, comments
 
         var title: String {
             switch self {
-            case .episodes: "选集"
+            case .details: "详情"
             case .comments: "评论"
             }
         }
@@ -23,7 +24,7 @@ struct EpisodePlayerPage: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: PlayerModel
     @State private var subject = SubjectModel()
-    @State private var tab: Tab = .episodes
+    @State private var tab: Tab = .details
     @State private var showsFullscreen = false
     @State private var showsSourcePicker = false
 
@@ -35,6 +36,7 @@ struct EpisodePlayerPage: View {
         VStack(spacing: 0) {
             InlinePlayer(
                 model: model,
+                isCovered: showsFullscreen,
                 onBack: { dismiss() },
                 onFullscreen: { showsFullscreen = true },
                 onShowSources: { showsSourcePicker = true },
@@ -42,20 +44,21 @@ struct EpisodePlayerPage: View {
 
             TabBar(selection: $tab)
 
-            switch tab {
-            case .episodes:
-                EpisodesPanel(
+            TabView(selection: $tab) {
+                EpisodeDetails(
                     model: model,
-                    episodes: subject.detail?.episodes ?? [],
+                    subject: subject,
                     onShowSources: { showsSourcePicker = true },
                 )
-            case .comments:
+                .tag(Tab.details)
+
                 CommentsScreen(source: .episode(model.target.episode.id), title: "评论")
-                    .scrollContentBackground(.hidden)
                     .id(model.target.episode.id)
+                    .tag(Tab.comments)
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
-        .background { AmbientBackground(imageUrl: model.target.subject.imageUrl) }
+        .background(Color(.systemBackground))
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .fullScreenCover(isPresented: $showsFullscreen) {
@@ -102,83 +105,56 @@ struct EpisodePlayerPage: View {
     }
 }
 
-/// 以封面的模糊色调作为页面底色, 让播放页与番剧本身的配色呼应.
-private struct AmbientBackground: View {
-    let imageUrl: String
-
-    var body: some View {
-        ZStack {
-            Color(.systemBackground)
-            Color.clear
-                .overlay {
-                    AsyncImage(url: URL(string: imageUrl)) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        Color.clear
-                    }
-                }
-                .blur(radius: 70)
-                .opacity(0.45)
-                .clipped()
-            LinearGradient(
-                colors: [Color(.systemBackground).opacity(0.2), Color(.systemBackground).opacity(0.85)],
-                startPoint: .top,
-                endPoint: .bottom,
-            )
-        }
-        .ignoresSafeArea()
-        .accessibilityHidden(true)
-    }
-}
-
-/// 「选集 / 评论」标签: 选中项加粗, 下方指示条随切换滑动.
+/// 「详情 / 评论」标签行: 选中项为强调色, 下方指示条随切换滑动.
 private struct TabBar: View {
     @Binding var selection: EpisodePlayerPage.Tab
     @Namespace private var indicator
 
     var body: some View {
-        HStack(spacing: 28) {
+        HStack(spacing: 0) {
             ForEach(EpisodePlayerPage.Tab.allCases, id: \.self) { tab in
                 let selected = tab == selection
                 Button {
                     withAnimation(.snappy(duration: 0.25)) { selection = tab }
                 } label: {
-                    VStack(spacing: 6) {
-                        Text(tab.title)
-                            .font(.body.weight(selected ? .semibold : .regular))
-                            .foregroundStyle(selected ? .primary : .secondary)
-                        ZStack {
-                            Capsule().fill(.clear).frame(height: 3)
+                    Text(tab.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                        .padding(.horizontal, 16)
+                        .frame(height: 44)
+                        .overlay(alignment: .bottom) {
                             if selected {
                                 Capsule()
                                     .fill(.tint)
-                                    .frame(width: 20, height: 3)
+                                    .frame(height: 3)
+                                    .padding(.horizontal, 12)
                                     .matchedGeometryEffect(id: "indicator", in: indicator)
                             }
                         }
-                    }
-                    .fixedSize()
-                    .contentShape(.rect)
+                        .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
             Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 4)
+        .background(Color(.secondarySystemBackground))
         .overlay(alignment: .bottom) {
-            Rectangle().fill(.separator.opacity(0.5)).frame(height: 0.5)
+            Divider()
         }
     }
 }
 
 // MARK: - 内嵌视频
 
-/// 页面顶部的 16:9 视频. 点按显示或隐藏控件; 控件隐藏时底部保留一条细进度线.
+/// 页面顶部的 16:9 视频. 点按显示或隐藏控件.
+///
+/// 顶栏: 返回, 剧集标题, 跳过 OP/ED, 更多选项 (画质增强, 播放信息, 外部链接, 下载).
+/// 底栏: 播放/暂停, 进度, 弹幕开关, 全屏. 控件隐藏时底部保留一条细进度线.
 private struct InlinePlayer: View {
     let model: PlayerModel
+    /// 全屏覆盖在上方时为 `true`; 此时内嵌画面不可见, 不做画质增强.
+    let isCovered: Bool
     let onBack: () -> Void
     let onFullscreen: () -> Void
     let onShowSources: () -> Void
@@ -191,7 +167,11 @@ private struct InlinePlayer: View {
     var body: some View {
         ZStack {
             Color.black
-            PlayerSurface(player: model.player)
+            PlayerSurface(
+                player: model.player,
+                enhancementMode: isCovered ? .off : model.enhancementMode,
+                onEnhancementUnavailable: enhancementUnavailable,
+            )
             DanmakuOverlay(
                 danmaku: model.visibleDanmaku(settings: services.settings),
                 isEnabled: model.isDanmakuEnabled,
@@ -203,6 +183,13 @@ private struct InlinePlayer: View {
                 controls.transition(.opacity)
             } else {
                 progressLine.transition(.opacity)
+            }
+            if model.showsStats {
+                PlayerStatsOverlay(model: model)
+                    .scaleEffect(0.85, anchor: .topLeading)
+                    .padding(.top, controlsVisible ? 48 : 8)
+                    .padding(.leading, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .aspectRatio(16 / 9, contentMode: .fit)
@@ -218,6 +205,12 @@ private struct InlinePlayer: View {
         .onChange(of: model.isPlaying) { _, playing in
             if playing { scheduleHide() }
         }
+    }
+
+    private func enhancementUnavailable() {
+        guard model.enhancementMode != .off else { return }
+        model.enhancementMode = .off
+        model.toastMessage = "当前视频无法使用画质增强"
     }
 
     @ViewBuilder
@@ -271,38 +264,42 @@ private struct InlinePlayer: View {
 
     private var controls: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
                 iconButton("chevron.backward", label: "返回", action: onBack)
                 Text(episodeTitle)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
-                Spacer()
-            }
-
-            Spacer()
-
-            if model.phase == .playing {
+                Spacer(minLength: 4)
                 Button {
-                    model.togglePlayback()
+                    model.skipOpEd()
                     scheduleHide()
                 } label: {
-                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 60, height: 60)
+                    Label("\(model.manualSkipSeconds)", systemImage: "goforward")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .frame(height: 40)
+                        .padding(.horizontal, 6)
+                        .contentShape(.rect)
                 }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(model.isPlaying ? "暂停" : "播放")
+                .buttonStyle(.plain)
+                .disabled(model.phase != .playing)
+                .accessibilityLabel("快进 \(model.manualSkipSeconds) 秒")
+                PlayerMoreMenu(model: model) {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 40, height: 40)
+                        .contentShape(.rect)
+                }
             }
 
             Spacer()
 
-            HStack(spacing: 10) {
-                Text("\(TimeText.format(scrubbing ?? model.currentTime)) / \(TimeText.format(model.duration))")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.9))
-                    .fixedSize()
+            HStack(spacing: 6) {
+                iconButton(model.isPlaying ? "pause.fill" : "play.fill", label: model.isPlaying ? "暂停" : "播放") {
+                    model.togglePlayback()
+                    scheduleHide()
+                }
+                .disabled(model.phase != .playing)
                 Slider(
                     value: Binding(
                         get: { scrubbing ?? model.currentTime },
@@ -319,6 +316,10 @@ private struct InlinePlayer: View {
                 .controlSize(.small)
                 .disabled(model.duration <= 0)
                 .accessibilityLabel("播放进度")
+                Text("\(TimeText.format(scrubbing ?? model.currentTime)) / \(TimeText.format(model.duration))")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.9))
+                    .fixedSize()
                 iconButton(
                     model.isDanmakuEnabled ? "text.bubble.fill" : "text.bubble",
                     label: model.isDanmakuEnabled ? "关闭弹幕" : "开启弹幕",
@@ -331,8 +332,8 @@ private struct InlinePlayer: View {
         }
         .foregroundStyle(.white)
         .tint(.white)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
         .background {
             LinearGradient(
                 stops: [
@@ -350,7 +351,7 @@ private struct InlinePlayer: View {
 
     private var episodeTitle: String {
         let episode = model.target.episode
-        return episode.displayName.isEmpty ? "第 \(episode.sort) 话" : "\(episode.sort) · \(episode.displayName)"
+        return episode.displayName.isEmpty ? "第 \(episode.sort) 话" : "\(episode.sort)  \(episode.displayName)"
     }
 
     private func iconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
@@ -383,270 +384,385 @@ enum TimeText {
     }
 }
 
-// MARK: - 选集
+// MARK: - 详情
 
-/// 「选集」: 番名与当前集, 一排快捷操作 (线路, 弹幕, 缓存, 下一集), 以及剧集网格.
-private struct EpisodesPanel: View {
+/// 「详情」页, 对应上游 `EpisodeDetails` 的窄屏布局.
+private struct EpisodeDetails: View {
     let model: PlayerModel
-    let episodes: [AniEpisode]
+    let subject: SubjectModel
     let onShowSources: () -> Void
 
-    @ScaledMetric(relativeTo: .title3) private var tileMinWidth: CGFloat = 68
+    @Environment(AppServices.self) private var services
+
+    private var episodes: [AniEpisode] { subject.detail?.episodes ?? [] }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    actions
-                    episodeSection(proxy: proxy)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 32)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                header
+                    .padding(.bottom, 4)
+                MediaSourceBanner(model: model, onTap: onShowSources)
+                DanmakuBanner(model: model)
+                EpisodeListSection(
+                    model: model,
+                    episodes: episodes,
+                    canEditWatched: services.isLoggedIn,
+                    onSetWatched: { episode, watched in
+                        Task {
+                            await subject.setWatched(
+                                watched,
+                                episode: episode,
+                                subjectId: model.target.subject.id,
+                                core: services.core,
+                            )
+                        }
+                    },
+                )
+                .padding(.top, 4)
             }
-            .scrollIndicators(.hidden)
-            .task(id: episodes.count) {
-                // 剧集加载完成后定位到正在播放的一集
-                guard !episodes.isEmpty else { return }
-                proxy.scrollTo(model.target.episode.id, anchor: .center)
+            .padding(16)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    /// 番剧名 (点按进入条目详情) 与收藏按钮.
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            NavigationLink(value: SubjectRoute(subject.detail?.subject ?? model.target.subject)) {
+                Text((subject.detail?.subject ?? model.target.subject).displayName)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 6)
+            }
+            .buttonStyle(.plain)
+            if services.isLoggedIn {
+                FavoriteButton(subject: subject, subjectId: model.target.subject.id)
             }
         }
     }
+}
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(model.target.subject.displayName)
-                .font(.title2.weight(.bold))
-                .lineLimit(2)
-            HStack(spacing: 6) {
-                Text("第 \(model.target.episode.sort) 话")
-                    .foregroundStyle(.tint)
-                    .fontWeight(.semibold)
-                if !model.target.episode.displayName.isEmpty {
-                    Text(model.target.episode.displayName)
+/// 收藏按钮: 未收藏时为空心爱心, 已收藏时为实心并显示收藏类型; 点按选择收藏类型.
+private struct FavoriteButton: View {
+    let subject: SubjectModel
+    let subjectId: Int32
+
+    @Environment(AppServices.self) private var services
+
+    var body: some View {
+        let current = subject.detail?.collectionType ?? .notCollected
+        Menu {
+            Picker("收藏", selection: Binding(
+                get: { current },
+                set: { type in
+                    Task { await subject.setCollectionType(type, subjectId: subjectId, core: services.core) }
+                },
+            )) {
+                ForEach(AniCollectionType.selectable, id: \.self) { type in
+                    Label(type.title, systemImage: type.systemImage).tag(type)
+                }
+            }
+            if current != .notCollected {
+                Divider()
+                Button("取消收藏", systemImage: "heart.slash", role: .destructive) {
+                    Task { await subject.setCollectionType(.notCollected, subjectId: subjectId, core: services.core) }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: current == .notCollected ? "heart" : "heart.fill")
+                if current != .notCollected {
+                    Text(current.title).font(.subheadline.weight(.medium))
+                }
+            }
+            .foregroundStyle(current == .notCollected ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+            .frame(minWidth: 40, minHeight: 40)
+            .contentShape(.rect)
+        }
+        .disabled(subject.detail == nil)
+        .accessibilityLabel(current == .notCollected ? "收藏" : "收藏状态: \(current.title)")
+    }
+}
+
+/// 上游 `MediaSelectorSummaryBanner`: 查询中, 需要手动选择, 或已选的数据源与资源标题; 点按切换数据源.
+private struct MediaSourceBanner: View {
+    let model: PlayerModel
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("切换数据源")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .frame(minHeight: 44)
+            .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
+            .contentShape(.rect(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let selected = model.selected {
+            HStack(spacing: 12) {
+                Image(systemName: "play.tv")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.sourceName(selected.mediaSourceId))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Text(selected.title)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
-            .font(.subheadline)
-        }
-    }
-
-    private var actions: some View {
-        ScrollView(.horizontal) {
-            GlassEffectContainer(spacing: 10) {
-                HStack(spacing: 10) {
-                    SourceMenu(model: model, onShowSources: onShowSources)
-
-                    Button {
-                        model.isDanmakuEnabled.toggle()
-                    } label: {
-                        Pill(
-                            title: "弹幕",
-                            systemImage: model.isDanmakuEnabled ? "text.bubble.fill" : "text.bubble",
-                            isOn: model.isDanmakuEnabled,
-                        )
-                    }
-                    .accessibilityValue(model.isDanmakuEnabled ? "开" : "关")
-
-                    Button {
-                        model.downloadSelected()
-                    } label: {
-                        Pill(title: "缓存", systemImage: "arrow.down.circle")
-                    }
-                    .disabled(model.selected == nil)
-
-                    Button {
-                        model.playNextEpisode()
-                    } label: {
-                        Pill(title: "下一集", systemImage: "forward.end")
-                    }
-                    .disabled(model.nextEpisode == nil)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
-    }
-
-    private func episodeSection(proxy: ScrollViewProxy) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("选集")
-                    .font(.headline)
-                if !episodes.isEmpty {
-                    Text("共 \(episodes.count) 话")
-                        .font(.subheadline)
+        } else if model.phase == .fetching {
+            HStack(spacing: 12) {
+                ProgressView().controlSize(.small)
+                Text("正在查询数据源")
+                    .font(.subheadline.weight(.semibold))
+                if let progress = model.progress {
+                    Text("\(progress.completed)/\(progress.total)")
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
+            }
+        } else {
+            Label("请选择数据源", systemImage: "exclamationmark.circle")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.red)
+        }
+    }
+}
+
+/// 上游 `DanmakuMatchInfoSummaryBanner`: 弹幕加载状态与数量.
+private struct DanmakuBanner: View {
+    let model: PlayerModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "captions.bubble")
+                .foregroundStyle(.secondary)
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(minHeight: 44)
+        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var text: String {
+        if !model.isDanmakuEnabled { return "弹幕已关闭，可在播放器内开启" }
+        if !model.danmaku.isEmpty { return "共计 \(model.danmaku.count) 条弹幕" }
+        return model.phase == .playing ? "暂无弹幕" : "弹幕加载中"
+    }
+}
+
+/// 上游窄屏 `EpisodeListSection`: 「剧集列表」标题, 右侧进入全部剧集; 下方横向滚动的剧集卡片.
+private struct EpisodeListSection: View {
+    let model: PlayerModel
+    let episodes: [AniEpisode]
+    let canEditWatched: Bool
+    let onSetWatched: (AniEpisode, Bool) -> Void
+
+    @State private var showsAll = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("剧集列表")
+                    .font(.headline)
                 Spacer()
                 Button {
-                    withAnimation { proxy.scrollTo(model.target.episode.id, anchor: .center) }
+                    showsAll = true
                 } label: {
-                    Label("定位", systemImage: "scope")
-                        .font(.subheadline)
+                    HStack(spacing: 2) {
+                        Text(episodes.isEmpty ? "全部" : "全 \(episodes.count) 话")
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .disabled(episodes.isEmpty)
-                .accessibilityLabel("定位到正在播放")
+                .accessibilityLabel("查看全部剧集")
             }
 
             if episodes.isEmpty {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+                ProgressView().frame(maxWidth: .infinity, minHeight: 72)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: tileMinWidth), spacing: 10)], spacing: 10) {
-                    ForEach(episodes, id: \.id) { episode in
-                        EpisodeTile(
-                            episode: episode,
-                            isCurrent: episode.id == model.target.episode.id,
-                            isPlaying: model.isPlaying,
-                        ) {
-                            model.play(episode: episode)
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal) {
+                        LazyHStack(spacing: 12) {
+                            ForEach(episodes, id: \.id) { episode in
+                                EpisodeCard(
+                                    episode: episode,
+                                    isPlaying: episode.id == model.target.episode.id,
+                                    animating: model.isPlaying,
+                                    action: { model.play(episode: episode) },
+                                )
+                                .contextMenu { watchedMenu(for: episode) }
+                                .id(episode.id)
+                            }
                         }
-                        .id(episode.id)
+                    }
+                    .scrollIndicators(.hidden)
+                    .scrollClipDisabled()
+                    .task(id: model.target.episode.id) {
+                        proxy.scrollTo(model.target.episode.id, anchor: .leading)
                     }
                 }
             }
         }
-    }
-}
-
-/// 胶囊形快捷操作; [isOn] 时以强调色填充.
-private struct Pill: View {
-    let title: String
-    let systemImage: String
-    var isOn = false
-    var trailingSystemImage: String?
-
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-            Text(title).lineLimit(1)
-            if let trailingSystemImage {
-                Image(systemName: trailingSystemImage)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.subheadline.weight(.medium))
-        .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .glassEffect(isOn ? .regular.tint(.accentColor).interactive() : .regular.interactive(), in: .capsule)
-        .opacity(isEnabled ? 1 : 0.4)
-        .contentShape(.capsule)
-    }
-}
-
-/// 「线路」: 列出符合偏好的资源, 选中即切换; 更多选项进入完整的选源面板.
-private struct SourceMenu: View {
-    let model: PlayerModel
-    let onShowSources: () -> Void
-
-    var body: some View {
-        Menu {
-            Section("播放线路") {
-                ForEach(model.preferredCandidates, id: \.mediaId) { candidate in
-                    Button {
-                        model.select(candidate)
-                    } label: {
-                        if candidate.mediaId == model.selected?.mediaId {
-                            Label(label(for: candidate), systemImage: "checkmark")
-                        } else {
-                            Text(label(for: candidate))
-                        }
-                    }
-                    .disabled(!candidate.playable)
-                }
-            }
-            Button("更多资源与手动查找…", systemImage: "square.stack", action: onShowSources)
-        } label: {
-            Pill(
-                title: model.selected.map(label(for:)) ?? placeholder,
-                systemImage: "antenna.radiowaves.left.and.right",
-                trailingSystemImage: "chevron.down",
+        .sheet(isPresented: $showsAll) {
+            EpisodeGridSheet(
+                episodes: episodes,
+                playingId: model.target.episode.id,
+                onSelect: { episode in
+                    showsAll = false
+                    model.play(episode: episode)
+                },
             )
-            .frame(maxWidth: 220)
+            .presentationDetents([.medium, .large])
         }
-        .accessibilityLabel("播放线路")
-    }
-
-    private var placeholder: String {
-        model.phase == .fetching ? "正在查找…" : "选择线路"
-    }
-
-    private func label(for candidate: AniMediaCandidate) -> String {
-        [model.sourceName(candidate.mediaSourceId), candidate.alliance]
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
-    }
-}
-
-/// 剧集网格中的一格: 集数为主; 正在播放的一集以强调色填充并显示跳动的音波, 看过的集显示对勾.
-private struct EpisodeTile: View {
-    let episode: AniEpisode
-    let isCurrent: Bool
-    let isPlaying: Bool
-    let action: () -> Void
-
-    private let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Text(episode.sort)
-                    .font(.title3.monospacedDigit().weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                indicator
-                    .font(.caption2.weight(.semibold))
-                    .frame(height: 12)
-            }
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .foregroundStyle(isCurrent ? AnyShapeStyle(.white) : episode.watched ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-            .background {
-                if isCurrent {
-                    shape.fill(.tint)
-                } else {
-                    shape.fill(.background.opacity(0.6))
-                    shape.strokeBorder(.separator.opacity(0.6), lineWidth: 0.5)
-                }
-            }
-            .contentShape(shape)
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            if !episode.displayName.isEmpty {
-                Text(episode.displayName)
-            }
-            if !episode.airDate.isEmpty {
-                Text(episode.airDate)
-            }
-        }
-        .accessibilityLabel(accessibilityText)
-        .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 
     @ViewBuilder
-    private var indicator: some View {
-        if isCurrent {
-            Image(systemName: "waveform")
-                .symbolEffect(.variableColor.iterative, isActive: isPlaying)
-        } else if episode.watched {
-            Image(systemName: "checkmark")
-        } else {
-            Color.clear
+    private func watchedMenu(for episode: AniEpisode) -> some View {
+        if !episode.displayName.isEmpty {
+            Text(episode.displayName)
         }
+        if canEditWatched {
+            Button(
+                episode.watched ? "取消看过" : "标记看过",
+                systemImage: episode.watched ? "arrow.uturn.backward.circle" : "checkmark.circle",
+            ) {
+                onSetWatched(episode, !episode.watched)
+            }
+        }
+    }
+}
+
+/// 剧集卡片: 72pt 高, 16:9. 集号与集名在左下角; 正在播放时以强调色显示并带跳动的音波, 看过的集右上角显示「已看」.
+private struct EpisodeCard: View {
+    let episode: AniEpisode
+    let isPlaying: Bool
+    let animating: Bool
+    let action: () -> Void
+
+    private let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .bottomLeading) {
+                shape.fill(background)
+                if episode.watched {
+                    Text("已看")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.thinMaterial, in: .capsule)
+                        .padding(6)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if isPlaying {
+                        Image(systemName: "waveform")
+                            .font(.caption.weight(.semibold))
+                            .symbolEffect(.variableColor.iterative, isActive: animating)
+                    }
+                    Text(episode.sort)
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                    Text(episode.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(isPlaying ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+            }
+            .frame(width: 128, height: 72)
+            .opacity(episode.watched && !isPlaying ? 0.6 : 1)
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityText)
+        .accessibilityAddTraits(isPlaying ? .isSelected : [])
+    }
+
+    private var background: Color {
+        isPlaying ? Color.accentColor.opacity(0.18) : Color(.secondarySystemBackground)
     }
 
     private var accessibilityText: String {
         var parts = ["第 \(episode.sort) 话"]
         if !episode.displayName.isEmpty { parts.append(episode.displayName) }
-        if isCurrent { parts.append("正在播放") } else if episode.watched { parts.append("已看过") }
+        if isPlaying { parts.append("正在播放") } else if episode.watched { parts.append("已看过") }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// 「选择剧集」: 全部剧集的网格.
+private struct EpisodeGridSheet: View {
+    let episodes: [AniEpisode]
+    let playingId: Int32
+    let onSelect: (AniEpisode) -> Void
+
+    @ScaledMetric(relativeTo: .body) private var tileMinWidth: CGFloat = 64
+
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: tileMinWidth), spacing: 10)], spacing: 10) {
+                        ForEach(episodes, id: \.id) { episode in
+                            let playing = episode.id == playingId
+                            Button {
+                                onSelect(episode)
+                            } label: {
+                                Text(episode.sort)
+                                    .font(.body.weight(.semibold).monospacedDigit())
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.6)
+                                    .frame(maxWidth: .infinity, minHeight: 48)
+                                    .foregroundStyle(
+                                        playing ? AnyShapeStyle(.white)
+                                            : episode.watched ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary),
+                                    )
+                                    .background(
+                                        playing ? AnyShapeStyle(.tint) : AnyShapeStyle(Color(.secondarySystemBackground)),
+                                        in: .rect(cornerRadius: 10),
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .id(episode.id)
+                            .accessibilityLabel(episode.displayName.isEmpty ? "第 \(episode.sort) 话" : "第 \(episode.sort) 话, \(episode.displayName)")
+                            .accessibilityAddTraits(playing ? .isSelected : [])
+                        }
+                    }
+                    .padding(16)
+                }
+                .onAppear { proxy.scrollTo(playingId, anchor: .center) }
+            }
+            .navigationTitle("选择剧集")
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }

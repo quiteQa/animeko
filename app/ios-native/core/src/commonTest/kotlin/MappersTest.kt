@@ -79,6 +79,7 @@ class MappersTest {
                 headers = mapOf("Referer" to "https://example.com/"),
                 subtitles = listOf(AniSubtitle(url = "https://example.com/zh.ass", language = "CHS", mimeType = null)),
                 title = "title",
+                sourceUrl = "https://example.com/video.m3u8",
             ),
             data.toAniPlayable("title"),
         )
