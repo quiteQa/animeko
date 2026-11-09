@@ -136,23 +136,16 @@ private struct ScheduleView: View {
 
             List(currentDay?.items ?? [], id: \.episodeId) { item in
                 NavigationLink(value: SubjectRoute(id: item.subjectId, name: item.subjectName, imageUrl: item.imageUrl)) {
-                    HStack(spacing: 12) {
-                        Text(item.timeKnown ? ScheduleFormat.time(item.airingTimeMillis) : "--:--")
-                            .font(.body.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                        CoverImage(url: item.imageUrl)
-                            .frame(width: 44, height: 62)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.subjectName).lineLimit(2)
-                            Text(item.episodeName.isEmpty ? "第 \(item.episodeSort) 话" : "\(item.episodeSort) · \(item.episodeName)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
+                    ScheduleRow(item: item)
                 }
+                .listRowInsets(ScheduleRow.insets)
+                // 分隔线与行内容同宽: 起止于左右内边距处, 不随内容变化
+                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                .alignmentGuide(.listRowSeparatorTrailing) { dimensions in dimensions.width }
             }
             .listStyle(.plain)
+            // 底部悬浮的标签栏 (含最小化后的悬浮按钮) 之上再留出空间, 最后一项能完整滚动到它上方
+            .contentMargins(.bottom, ScheduleRow.floatingBarClearance, for: .scrollContent)
             .overlay {
                 if model.schedule.isEmpty {
                     if let message = model.scheduleError {
@@ -165,6 +158,60 @@ private struct ScheduleView: View {
                 }
             }
         }
+    }
+}
+
+/// 时间表的一行: 「时间 | 封面 | 标题与副标题 | (系统) 右箭头」四列.
+///
+/// 时间列宽由隐藏的模板文字 "88:88" 决定 (等宽数字, 随动态字体缩放), 不随实际时间文字长短变化;
+/// 封面固定尺寸; 文字列占满剩余宽度. 各列在行内垂直居中, 行高至少为封面高度, 因此各行等高.
+private struct ScheduleRow: View {
+    let item: AniScheduleItem
+
+    static let insets = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
+    static let floatingBarClearance: CGFloat = 72
+
+    @ScaledMetric(relativeTo: .body) private var coverWidth: CGFloat = 48
+    @ScaledMetric(relativeTo: .body) private var coverHeight: CGFloat = 68
+    @ScaledMetric(relativeTo: .body) private var columnSpacing: CGFloat = 12
+
+    var body: some View {
+        HStack(alignment: .center, spacing: columnSpacing) {
+            timeColumn
+            CoverImage(url: item.imageUrl)
+                .frame(width: coverWidth, height: coverHeight)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.subjectName)
+                    .font(.body)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minHeight: coverHeight)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var timeColumn: some View {
+        ZStack(alignment: .trailing) {
+            // 只用于撑出固定列宽
+            Text(verbatim: "88:88").hidden()
+            Text(item.timeKnown ? ScheduleFormat.time(item.airingTimeMillis) : "--:--")
+                .foregroundStyle(.secondary)
+        }
+        .font(.callout.monospacedDigit())
+        .lineLimit(1)
+        .fixedSize()
+    }
+
+    private var subtitle: String {
+        item.episodeName.isEmpty ? "第 \(item.episodeSort) 话" : "\(item.episodeSort) · \(item.episodeName)"
     }
 }
 
@@ -193,9 +240,16 @@ enum ScheduleFormat {
         return date.formatted(.dateTime.month(.defaultDigits).day())
     }
 
+    /// 固定 24 小时制 "HH:mm" (如 "00:05", "20:30"), 与系统 12/24 小时设置无关, 时间列宽度因此恒定.
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
     static func time(_ epochMillis: Int64) -> String {
-        Date(timeIntervalSince1970: TimeInterval(epochMillis) / 1000)
-            .formatted(date: .omitted, time: .shortened)
+        timeFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(epochMillis) / 1000))
     }
 }
 

@@ -135,16 +135,23 @@ extension AniSubject {
     }
 }
 
+/// 封面. 布局尺寸严格等于调用方给的 frame: 底层占位矩形决定尺寸, 图片在其上按比例填充并裁剪,
+/// 不会因为图片比例不同而撑开或偏移.
 struct CoverImage: View {
     let url: String
+    var cornerRadius: CGFloat = 8
 
     var body: some View {
-        AsyncImage(url: URL(string: url)) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Rectangle().fill(.quaternary)
-        }
-        .clipShape(.rect(cornerRadius: 8))
-        .accessibilityHidden(true)
+        Rectangle()
+            .fill(.quaternary)
+            .overlay {
+                AsyncImage(url: URL(string: url)) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.clear
+                }
+            }
+            .clipShape(.rect(cornerRadius: cornerRadius))
+            .accessibilityHidden(true)
     }
 }
