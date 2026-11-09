@@ -44,6 +44,8 @@ struct ExploreScreen: View {
             }
         }
         .navigationTitle("探索")
+        // 不绘制导航栏背景, 也就没有底部的分割线; 内容滚到栏下时由系统的滚动边缘效果过渡
+        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Picker("页面", selection: $page) {
