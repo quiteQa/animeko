@@ -65,6 +65,29 @@ jobs:
         pod --version
         df -h
 
+    # Maven Central 对 CI 出口会限流 (429) 或把大文件重定向到 GitHub Releases, 后者不可用时整个构建在编译前失败.
+    # 优先使用 Google 的 Maven Central 镜像; 对 Xcode 构建阶段调用的 Gradle 同样生效.
+    - name: 'Prefer Maven Central mirror'
+      run: |
+        mkdir -p ~/.gradle/init.d
+        cat > ~/.gradle/init.d/central-mirror.init.gradle.kts <<'EOF'
+        val mirrorUrl = "https://maven-central.storage-download.googleapis.com/maven2/"
+
+        fun RepositoryHandler.preferMirror() {
+            if (none { it is MavenArtifactRepository && it.url.toString() == mirrorUrl }) {
+                val repo = maven { url = uri(mirrorUrl); name = "CentralMirror" }
+                remove(repo)
+                addFirst(repo)
+            }
+        }
+
+        settingsEvaluated {
+            if (pluginManagement.repositories.isEmpty()) pluginManagement.repositories.gradlePluginPortal()
+            pluginManagement.repositories.preferMirror()
+            dependencyResolutionManagement.repositories.preferMirror()
+        }
+        EOF
+
     # pod install 要求 AniCore.framework 已存在, 先生成占位 framework; 真正的 framework 在 xcodebuild 时编译
     - name: 'Prepare FFmpeg runtime and AniCore podspec'
       run: >-
