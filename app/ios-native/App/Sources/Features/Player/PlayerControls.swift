@@ -29,12 +29,12 @@ struct PlayerControls: View {
     private var topBar: some View {
         HStack(spacing: 12) {
             Button(action: onClose) {
-                Image(systemName: "chevron.down")
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(.glass)
             .buttonBorderShape(.circle)
-            .accessibilityLabel("关闭播放器")
+            .accessibilityLabel("退出全屏")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.target.subject.displayName)

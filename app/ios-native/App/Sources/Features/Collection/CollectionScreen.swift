@@ -73,8 +73,8 @@ struct CollectionScreen: View {
             }
         }
         .bangumiLogin(login)
-        .fullScreenCover(item: $playing) { target in
-            PlayerScreen(target: target)
+        .navigationDestination(item: $playing) { target in
+            EpisodePlayerPage(target: target)
         }
     }
 

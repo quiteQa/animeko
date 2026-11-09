@@ -181,13 +181,19 @@ final class PlayerModel {
 
     /// 切换到下一集. `automatic` 表示播放结束时自动触发.
     func playNextEpisode(automatic: Bool = false) {
-        guard let next = nextEpisode, !isSwitchingEpisode else { return }
-        isSwitchingEpisode = true
+        guard let next = nextEpisode else { return }
         if automatic { toastMessage = "自动播放下一集: 第 \(next.sort) 话" }
+        play(episode: next)
+    }
+
+    /// 在当前播放页内切换到 `episode`: 保存旧剧集的进度并关闭其会话, 再为新剧集查询资源.
+    func play(episode: AniEpisode) {
+        guard episode.id != target.episode.id, !isSwitchingEpisode else { return }
+        isSwitchingEpisode = true
         Task {
             await closeSession()
             resetEpisodeState()
-            target = PlaybackTarget(subject: target.subject, episode: next)
+            target = PlaybackTarget(subject: target.subject, episode: episode)
             isSwitchingEpisode = false
             openSession()
         }

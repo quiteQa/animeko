@@ -62,25 +62,32 @@ struct SubjectScreen: View {
         return detail.episodes.first { $0.id == id }
     }
 
+    /// 头部播放按钮播放的剧集: 下一集要看的, 没有时为第一集.
+    private var playTarget: PlaybackTarget? {
+        guard let detail = model.detail, let episode = nextEpisode ?? detail.episodes.first else { return nil }
+        return PlaybackTarget(subject: detail.subject, episode: episode)
+    }
+
     var body: some View {
         List {
             Section {
-                SubjectHeader(subject: model.detail?.subject, route: route)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            }
-            if let next = nextEpisode, let subject = model.detail?.subject {
-                Section {
-                    Button {
-                        playing = PlaybackTarget(subject: subject, episode: next)
-                    } label: {
-                        Label("继续观看 第 \(next.sort) 话", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
+                SubjectHeader(subject: model.detail?.subject, route: route) {
+                    if let target = playTarget {
+                        Button {
+                            playing = target
+                        } label: {
+                            Label(
+                                nextEpisode == nil ? "开始观看" : "继续观看 第 \(target.episode.sort) 话",
+                                systemImage: "play.fill",
+                            )
+                            .lineLimit(1)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .controlSize(.large)
                     }
-                    .buttonStyle(.glassProminent)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
                 }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
             if let message = model.actionError {
                 Section {
@@ -112,8 +119,8 @@ struct SubjectScreen: View {
         }
         .task(id: reloadToken) { await model.observe(subjectId: subjectId, core: services.core) }
         .refreshable { reloadToken += 1 }
-        .fullScreenCover(item: $playing) { target in
-            PlayerScreen(target: target)
+        .navigationDestination(item: $playing) { target in
+            EpisodePlayerPage(target: target)
         }
     }
 
@@ -182,10 +189,11 @@ struct SubjectScreen: View {
     }
 }
 
-/// 详情加载前用 [route] 中的名称与封面占位.
-private struct SubjectHeader: View {
+/// 详情加载前用 [route] 中的名称与封面占位. [actions] 放在封面右侧信息下方 (播放按钮).
+private struct SubjectHeader<Actions: View>: View {
     let subject: AniSubject?
     let route: SubjectRoute
+    @ViewBuilder let actions: Actions
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -207,7 +215,10 @@ private struct SubjectHeader: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 8)
+                    actions
                 }
+                .frame(minHeight: 156, alignment: .top)
             }
             if let summary = subject?.summary, !summary.isEmpty {
                 ExpandableText(text: summary)

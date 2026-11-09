@@ -2,19 +2,17 @@ import AniCore
 import AVKit
 import SwiftUI
 
+/// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个 `AVPlayer` 的全屏视图:
+/// 关闭全屏回到播放页, 播放继续.
 struct PlayerScreen: View {
     @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
-    @State private var model: PlayerModel
+    let model: PlayerModel
     @State private var controlsVisible = true
     @State private var showsSourcePicker = false
     @State private var showsComments = false
     @State private var pictureInPicture: AVPictureInPictureController?
     @State private var hideControlsTask: Task<Void, Never>?
-
-    init(target: PlaybackTarget) {
-        _model = State(initialValue: PlayerModel(target: target))
-    }
 
     var body: some View {
         ZStack {
@@ -98,15 +96,10 @@ struct PlayerScreen: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: model.pendingSkip?.name)
-        .task {
-            let services = services
-            model.start(core: services.core, settings: { services.settings })
-            scheduleHideControls()
-        }
+        .task { scheduleHideControls() }
     }
 
     private func close() {
-        model.stop()
         dismiss()
     }
 
