@@ -88,6 +88,29 @@ jobs:
         }
         EOF
 
+    # Gradle 发行包托管在 GitHub Releases, 该服务超时时 wrapper 直接失败.
+    # 先带重试地下载并校验发行包 (依次尝试多个镜像), 再让 wrapper 从本地文件安装.
+    - name: 'Download Gradle distribution'
+      run: |
+        url=$(sed -n 's/^distributionUrl=//p' gradle/wrapper/gradle-wrapper.properties | sed 's/\\:/:/')
+        name=$(basename "$url")
+        version=${name#gradle-}; version=${version%-bin.zip}
+        dest="$RUNNER_TEMP/$name"
+        expected=$(curl -fsSL --retry 5 --retry-all-errors "https://downloads.gradle.org/distributions/$name.sha256")
+        for source in "$url" \
+          "https://mirrors.cloud.tencent.com/gradle/$name" \
+          "https://mirrors.aliyun.com/gradle/distributions/v$version/$name"; do
+          echo "Trying $source"
+          if curl -fL --retry 4 --retry-all-errors --retry-delay 10 --connect-timeout 20 -o "$dest" "$source" \
+            && echo "$expected  $dest" | shasum -a 256 -c -; then
+            sed -i '' "s|^distributionUrl=.*|distributionUrl=file\\\\:$dest|" gradle/wrapper/gradle-wrapper.properties
+            grep distributionUrl gradle/wrapper/gradle-wrapper.properties
+            exit 0
+          fi
+        done
+        echo "All Gradle distribution sources failed" >&2
+        exit 1
+
     # pod install 要求 AniCore.framework 已存在, 先生成占位 framework; 真正的 framework 在 xcodebuild 时编译
     - name: 'Prepare FFmpeg runtime and AniCore podspec'
       run: >-
