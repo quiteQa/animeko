@@ -1,0 +1,44 @@
+# M0: 验证 libtorrent 能交叉编译到 iOS 并在模拟器中运行 (见 app/ios-native/GOALS.md).
+# 手写的独立 workflow, 不由 src.main.kts 生成. 产物 LibTorrent.xcframework 供后续 BT 集成使用.
+
+name: 'iOS libtorrent (M0)'
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+    - 'claude/**'
+    paths:
+    - 'app/ios-native/libtorrent/**'
+    - '.github/workflows/ios-libtorrent.yml'
+concurrency:
+  group: 'ios-libtorrent-${{ github.ref_name }}'
+  cancel-in-progress: true
+jobs:
+  build:
+    name: 'Build libtorrent for iOS and run smoke test'
+    runs-on: 'macos-26'
+    timeout-minutes: 90
+    permissions:
+      contents: 'read'
+    steps:
+    - uses: 'actions/checkout@v4'
+
+    - name: 'Show toolchain'
+      run: |
+        xcodebuild -version
+        cmake --version
+        xcrun simctl list runtimes
+
+    - name: 'Build'
+      run: './app/ios-native/libtorrent/build-ios.sh "$RUNNER_TEMP/lt"'
+
+    - name: 'Smoke test in simulator'
+      run: './app/ios-native/libtorrent/run-smoke.sh "$RUNNER_TEMP/lt"'
+
+    - name: 'Upload xcframework'
+      if: '${{ always() }}'
+      uses: 'actions/upload-artifact@v4'
+      with:
+        name: 'LibTorrent-xcframework'
+        path: '${{ runner.temp }}/lt/LibTorrent.xcframework'
+        if-no-files-found: 'ignore'
