@@ -1,9 +1,8 @@
 import AniCore
-import AVFoundation
 import SwiftUI
 import UIKit
 
-/// 画质增强档位, 与上游 `VideoEnhancementMode` 一致. 原始值即 `EnhancedPlayerView` 的 mode.
+/// 画质增强档位, 名称与菜单顺序同上游 `VideoEnhancementMode`. 原始值即 `MPVPlayer.setEnhancement` 的档位.
 enum VideoEnhancementMode: Int, CaseIterable, Identifiable {
     case off = 0
     case performance = 1
@@ -149,16 +148,9 @@ struct ExternalLinks {
 struct PlayerStatsOverlay: View {
     let model: PlayerModel
 
-    @State private var codecs = Codecs()
-
-    struct Codecs: Equatable {
-        var video: String?
-        var audio: String?
-    }
-
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
-            let rows = PlayerStatsRows.capture(model: model, codecs: codecs)
+            let rows = PlayerStatsRows.capture(model: model)
             VStack(alignment: .leading, spacing: 3) {
                 Text("播放信息")
                     .fontWeight(.semibold)
@@ -177,59 +169,10 @@ struct PlayerStatsOverlay: View {
         }
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
-        .task(id: model.playable?.url) {
-            codecs = Codecs()
-            // HLS 的轨道在开始播放后才出现, 拿到编码前每 2 秒重试
-            for _ in 0..<10 {
-                let loaded = await Self.loadCodecs(model.player.currentItem)
-                if loaded.video != nil || loaded.audio != nil {
-                    codecs = loaded
-                    return
-                }
-                try? await Task.sleep(for: .seconds(2))
-                if Task.isCancelled { return }
-            }
-        }
-    }
-
-    private static func loadCodecs(_ item: AVPlayerItem?) async -> Codecs {
-        guard let item else { return Codecs() }
-        var result = Codecs()
-        var tracks: [AVAssetTrack] = (try? await item.asset.load(.tracks)) ?? []
-        if tracks.isEmpty {
-            tracks = item.tracks.compactMap(\.assetTrack)
-        }
-        for track in tracks {
-            guard let description = (try? await track.load(.formatDescriptions))?.first else { continue }
-            let name = codecName(CMFormatDescriptionGetMediaSubType(description))
-            switch track.mediaType {
-            case .video: result.video = result.video ?? name
-            case .audio: result.audio = result.audio ?? name
-            default: break
-            }
-        }
-        return result
-    }
-
-    private static func codecName(_ code: FourCharCode) -> String {
-        let bytes = [24, 16, 8, 0].map { UInt8((code >> $0) & 0xFF) }
-        let fourCC = (String(bytes: bytes, encoding: .ascii) ?? "").trimmingCharacters(in: .whitespaces)
-        switch fourCC {
-        case "avc1", "avc3": return "H.264 (\(fourCC))"
-        case "hvc1", "hev1": return "HEVC (\(fourCC))"
-        case "av01": return "AV1"
-        case "vp09": return "VP9"
-        case "mp4a": return "AAC"
-        case "ac-3": return "AC-3"
-        case "ec-3": return "E-AC-3"
-        case "opus": return "Opus"
-        case "fLaC": return "FLAC"
-        default: return fourCC.isEmpty ? "未知" : fourCC
-        }
     }
 }
 
-/// 播放信息的各行, 从 `AVPlayer` 及其 access log 读取.
+/// 播放信息的各行, 从 mpv 的属性读取.
 enum PlayerStatsRows {
     struct Row {
         let label: String
@@ -237,50 +180,44 @@ enum PlayerStatsRows {
     }
 
     @MainActor
-    static func capture(model: PlayerModel, codecs: PlayerStatsOverlay.Codecs) -> [Row] {
+    static func capture(model: PlayerModel) -> [Row] {
         let player = model.player
-        let item = player.currentItem
-        let event = item?.accessLog()?.events.last
         var rows: [Row] = []
         func add(_ label: String, _ value: String?) {
             if let value, !value.isEmpty { rows.append(Row(label: label, value: value)) }
         }
 
-        add("后端", model.enhancementMode == .off ? "AVPlayer" : "AVPlayer + Metal (\(model.enhancementMode.title))")
-        add("状态", state(player: player, item: item))
+        let hwdec = player.string("hwdec-current")
+        add("后端", "mpv (\(hwdec.map { $0 == "no" ? "软件解码" : "硬件解码 \($0)" } ?? "未加载")) · \(model.enhancementMode.title)")
+        add("状态", state(model: model))
         add("标题", model.playable?.title)
         add("数据源", model.selected.map { model.sourceName($0.mediaSourceId) })
         add("进度", "\(TimeText.format(model.currentTime)) / \(TimeText.format(model.duration))")
-        if let size = item?.presentationSize, size.width > 0, size.height > 0 {
-            add("分辨率", "\(Int(size.width))×\(Int(size.height))")
+        if let width = player.double("video-params/w"), let height = player.double("video-params/h"), width > 0 {
+            add("分辨率", "\(Int(width))×\(Int(height))")
         }
-        let frameRate = item?.tracks
-            .first { $0.assetTrack?.mediaType == .video }?
-            .currentVideoFrameRate ?? 0
-        if frameRate > 0 { add("帧率", "\(decimal(Double(frameRate))) fps") }
-        add("视频编码", codecs.video)
-        add("视频码率", bitrate(event?.indicatedBitrate))
-        add("音频编码", codecs.audio)
-        let rate = player.rate > 0 ? player.rate : player.defaultRate
-        add("播放速度", "\(decimal(Double(rate)))x")
-        add("实时输入", bitrate(event?.observedBitrate))
-        var decode: [String] = []
-        if let dropped = event?.numberOfDroppedVideoFrames, dropped > 0 { decode.append("丢帧 \(dropped)") }
-        if let stalls = event?.numberOfStalls, stalls > 0 { decode.append("卡顿 \(stalls)") }
-        add("解码统计", decode.isEmpty ? nil : decode.joined(separator: " / "))
+        if let fps = player.double("estimated-vf-fps") ?? player.double("container-fps"), fps > 0 {
+            add("帧率", "\(decimal(fps)) fps")
+        }
+        add("视频编码", player.string("video-codec"))
+        add("视频码率", bitrate(player.double("video-bitrate")))
+        add("音频编码", player.string("audio-codec-name"))
+        add("播放速度", "\(decimal(Double(model.playbackRate)))x")
+        add("实时输入", bitrate(player.cacheSpeed * 8))
+        if let cached = player.double("demuxer-cache-duration"), cached > 0 {
+            add("缓冲", "\(decimal(cached)) 秒")
+        }
+        let dropped = Int(player.double("frame-drop-count") ?? 0) + Int(player.double("decoder-frame-drop-count") ?? 0)
+        add("解码统计", dropped > 0 ? "丢帧 \(dropped)" : nil)
         return rows
     }
 
     @MainActor
-    private static func state(player: AVPlayer, item: AVPlayerItem?) -> String {
-        if item?.status == .failed { return "错误" }
-        guard item != nil else { return "空闲" }
-        switch player.timeControlStatus {
-        case .playing: return "播放中"
-        case .paused: return "已暂停"
-        case .waitingToPlayAtSpecifiedRate: return "缓冲中"
-        @unknown default: return "未知"
-        }
+    private static func state(model: PlayerModel) -> String {
+        let player = model.player
+        guard player.hasMedia else { return "空闲" }
+        if player.isBuffering { return "缓冲中" }
+        return player.isPaused ? "已暂停" : "播放中"
     }
 
     private static func bitrate(_ value: Double?) -> String? {

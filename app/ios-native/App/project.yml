@@ -6,6 +6,11 @@ options:
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
+# 播放内核 libmpv (MPVKit 的 LGPL 构建). 版本固定, 只在需要时升级.
+packages:
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit
+    exactVersion: 1.1.0-n9.0.2
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -18,14 +23,6 @@ targets:
     platform: iOS
     sources:
       - path: Sources
-      # 上游的原生播放视图与 Metal 画质增强, 直接引用不复制
-      - path: ../../ios/Animeko/EnhancedPlayerView.swift
-        group: Upstream
-      - path: ../../ios/Animeko/VideoEnhancementRenderer.swift
-        group: Upstream
-      - path: ../../../utils/video-enhancement-shader-provider/src/commonMain/composeResources/files/shaders
-        group: Upstream
-        buildPhase: resources
     info:
       path: Generated/Info.plist
       properties:
@@ -46,6 +43,8 @@ targets:
     dependencies:
       - framework: ../../../utils/http-downloader/build/mediamp-ffmpeg/apple-runtime/MediampFFmpegKit.xcframework
         embed: true
+      - package: MPVKit
+        product: MPVKit
   AnimekoNativeTests:
     type: bundle.unit-test
     platform: iOS

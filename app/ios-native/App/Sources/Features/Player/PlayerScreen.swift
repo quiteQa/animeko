@@ -1,9 +1,8 @@
 import AniCore
-import AVKit
 import Combine
 import SwiftUI
 
-/// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个 `AVPlayer` 的全屏视图, 由播放页叠放在自身之上
+/// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个播放内核的全屏视图, 由播放页叠放在自身之上
 /// (不是模态页), 横竖屏旋转与全屏切换在同一次系统旋转动画中完成. 切换到竖屏回到播放页, 播放继续;
 /// 关闭则连同播放页一起关闭. 界面方向由播放页控制.
 struct PlayerScreen: View {
@@ -17,7 +16,6 @@ struct PlayerScreen: View {
     @State private var isLocked = false
     @State private var showsSourcePicker = false
     @State private var showsWatchTogether = false
-    @State private var pictureInPicture: AVPictureInPictureController?
     @State private var hideControlsTask: Task<Void, Never>?
     @State private var heldLandscape = false
 
@@ -25,13 +23,7 @@ struct PlayerScreen: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            PlayerSurface(
-                player: model.player,
-                enhancementMode: model.enhancementMode,
-                fillsScreen: model.fillsScreen,
-                onEnhancementUnavailable: enhancementUnavailable,
-                onPictureInPictureReady: { pictureInPicture = $0 },
-            )
+            PlayerSurface(player: model.player)
             .ignoresSafeArea()
 
             DanmakuOverlay(
@@ -68,13 +60,14 @@ struct PlayerScreen: View {
             if controlsVisible {
                 PlayerControls(
                     model: model,
-                    canStartPictureInPicture: pictureInPicture != nil,
+                    // mpv 的画中画在 M2 实现 (见 GOALS.md)
+                    canStartPictureInPicture: false,
                     isLocked: $isLocked,
                     onClosePage: onClosePage,
                     onExitFullscreen: onExitFullscreen,
                     onShowSources: { showsSourcePicker = true },
                     onShowWatchTogether: { showsWatchTogether = true },
-                    onPictureInPicture: { pictureInPicture?.startPictureInPicture() },
+                    onPictureInPicture: {},
                     onInteraction: scheduleHideControls,
                 )
                 .environment(\.colorScheme, .dark)
@@ -145,12 +138,6 @@ struct PlayerScreen: View {
             default: break
             }
         }
-    }
-
-    private func enhancementUnavailable() {
-        guard model.enhancementMode != .off else { return }
-        model.enhancementMode = .off
-        model.toastMessage = "当前视频无法使用画质增强"
     }
 
     private func scheduleHideControls() {

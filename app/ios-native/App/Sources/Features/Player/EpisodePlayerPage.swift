@@ -1,5 +1,4 @@
 import AniCore
-import AVKit
 import Combine
 import SwiftUI
 
@@ -7,7 +6,7 @@ import SwiftUI
 ///
 /// 评论展开后占据弹幕源以下的全部空间, 单独滚动, 底部显示评论框; 剧集列表与相关推荐在收起评论后显示.
 ///
-/// 视频固定在顶部, 其余内容在下方滚动. 页面持有 `PlayerModel` 与播放会话; 全屏是叠在页面之上的同一个 `AVPlayer`
+/// 视频固定在顶部, 其余内容在下方滚动. 页面持有 `PlayerModel` 与播放会话; 全屏是叠在页面之上的同一个播放内核
 /// 的另一个视图, 与界面旋转一起淡入淡出, 退出全屏后回到这里继续播放. 离开页面 (返回) 时结束播放.
 /// iPhone 横过来时自动进入全屏.
 struct EpisodePlayerPage: View {
@@ -204,11 +203,7 @@ private struct InlinePlayer: View {
     var body: some View {
         ZStack {
             Color.black
-            PlayerSurface(
-                player: model.player,
-                enhancementMode: isCovered ? .off : model.enhancementMode,
-                onEnhancementUnavailable: enhancementUnavailable,
-            )
+            PlayerSurface(player: model.player, isActive: !isCovered)
             DanmakuOverlay(
                 danmaku: model.visibleDanmaku(settings: services.settings),
                 isEnabled: model.isDanmakuEnabled,
@@ -243,12 +238,6 @@ private struct InlinePlayer: View {
         .onChange(of: model.isPlaying) { _, playing in
             if playing { scheduleHide() }
         }
-    }
-
-    private func enhancementUnavailable() {
-        guard model.enhancementMode != .off else { return }
-        model.enhancementMode = .off
-        model.toastMessage = "当前视频无法使用画质增强"
     }
 
     @ViewBuilder

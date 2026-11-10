@@ -1,14 +1,12 @@
 import AniCore
-import AVFoundation
-import CoreImage
 import Foundation
 import Photos
 import UIKit
 
-/// 播放页状态. Swift 持有 `AVPlayer`; Kotlin 会话只负责查询, 选择, 解析, 进度记录与标记看过.
+/// 播放页状态. Swift 持有 mpv 播放内核 (`MPVPlayer`); Kotlin 会话只负责查询, 选择, 解析, 进度记录与标记看过.
 ///
 /// 一个 `PlayerModel` 在播放页存续期间可以连续播放多集: 切换剧集时关闭旧的 Kotlin 会话, 为新剧集打开会话,
-/// `AVPlayer` 与播放页保持不变.
+/// 播放内核与播放页保持不变.
 @MainActor
 @Observable
 final class PlayerModel {
@@ -24,7 +22,7 @@ final class PlayerModel {
     }
 
     private(set) var target: PlaybackTarget
-    let player = AVPlayer()
+    let player = MPVPlayer()
 
     private(set) var phase: Phase = .fetching
     /// 所有候选资源 (不按偏好过滤)
@@ -43,13 +41,17 @@ final class PlayerModel {
     /// 用户在本次播放中关闭的弹幕源 (`AniDanmaku.serviceId`).
     var disabledDanmakuSources: Set<String> = []
     /// 画质增强档位, 同时作用于内嵌与全屏画面.
-    var enhancementMode: VideoEnhancementMode = .off
+    var enhancementMode: VideoEnhancementMode = .off {
+        didSet { player.setEnhancement(enhancementMode.rawValue) }
+    }
     /// 是否在画面上显示播放信息.
     var showsStats = false
     /// 当前正在播放的地址; 外部链接使用其中的原始播放地址.
     private(set) var playable: AniPlayable?
     /// 画面填充屏幕 (裁切边缘); 为 `false` 时完整显示画面.
-    var fillsScreen = false
+    var fillsScreen = false {
+        didSet { player.setFillsScreen(fillsScreen) }
+    }
     /// 播放速度.
     private(set) var playbackRate: Float = 1
     /// 最近一秒的下载速度 (字节/秒).
@@ -75,9 +77,7 @@ final class PlayerModel {
     /// 随当前剧集会话存续的任务, 切换剧集时取消.
     @ObservationIgnored private var sessionTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var resolveTask: Task<Void, Never>?
-    @ObservationIgnored private var timeObserver: Any?
-    @ObservationIgnored private var rateObservation: NSKeyValueObservation?
-    @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var backgroundObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var lastReportedAt: TimeInterval = 0
     /// 最近一次进度上报. 上报按顺序执行, 关闭会话前等待它完成.
     @ObservationIgnored private var pendingReport: Task<Void, Never>?
@@ -85,9 +85,6 @@ final class PlayerModel {
     /// 为当前媒体加载过跳过片段 (成功或失败都不再重试)
     @ObservationIgnored private var skipSegmentsRequested = false
     @ObservationIgnored private var isSwitchingEpisode = false
-    /// 截图读取当前帧.
-    @ObservationIgnored private var videoOutput: AVPlayerItemVideoOutput?
-    @ObservationIgnored private var lastTransferredBytes: Int64 = 0
     /// 一起看: 本集首次加载后是否已决定 "加载后暂停, 等待房主".
     @ObservationIgnored private var watchTogetherHoldDone = false
     @ObservationIgnored private var playerTasks: [Task<Void, Never>] = []
@@ -188,12 +185,14 @@ final class PlayerModel {
         isPlaying ? player.pause() : player.play()
     }
 
+    /// 是否已加载媒体.
+    private var hasMedia: Bool { player.hasMedia }
+
     // MARK: - 速度, 截图
 
     func setPlaybackRate(_ rate: Float) {
         playbackRate = rate
-        player.defaultRate = rate
-        if isPlaying { player.rate = rate }
+        player.setSpeed(Double(rate))
     }
 
     /// 切换到相邻的速度档位. `step` 为 1 加速, -1 减速.
@@ -206,17 +205,12 @@ final class PlayerModel {
 
     /// 截取当前画面并保存到相册.
     func saveScreenshot() {
-        guard let output = videoOutput,
-              let buffer = output.copyPixelBuffer(forItemTime: player.currentTime(), itemTimeForDisplay: nil) else {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("screenshot-\(UUID().uuidString).png")
+        guard hasMedia, player.screenshot(to: file), let photo = UIImage(contentsOfFile: file.path) else {
             toastMessage = "暂时无法截图"
             return
         }
-        let image = CIImage(cvPixelBuffer: buffer)
-        guard let cgImage = CIContext().createCGImage(image, from: image.extent) else {
-            toastMessage = "暂时无法截图"
-            return
-        }
-        let photo = UIImage(cgImage: cgImage)
+        try? FileManager.default.removeItem(at: file)
         Task {
             let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard status == .authorized || status == .limited else {
@@ -235,7 +229,8 @@ final class PlayerModel {
     }
 
     func seek(to seconds: TimeInterval) {
-        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        player.seek(to: seconds)
+        currentTime = seconds
     }
 
     func skip(by seconds: TimeInterval) {
@@ -244,8 +239,8 @@ final class PlayerModel {
 
     /// 弹幕层按此读取播放器时间. 没有媒体时为 `nil`.
     func playbackTime() -> TimeInterval? {
-        guard player.currentItem != nil else { return nil }
-        let seconds = player.currentTime().seconds
+        guard hasMedia else { return nil }
+        let seconds = player.position
         return seconds.isFinite ? seconds : nil
     }
 
@@ -307,15 +302,15 @@ final class PlayerModel {
         playerTasks.forEach { $0.cancel() }
         playerTasks.removeAll()
         core?.watchTogether.clearWatching()
-        if let timeObserver { player.removeTimeObserver(timeObserver) }
-        timeObserver = nil
-        rateObservation = nil
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = nil
+        backgroundObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        backgroundObservers.removeAll()
+        player.onChange = nil
+        player.onEndOfFile = nil
+        player.onLoadFailed = nil
         player.pause()
         Task {
             await closeSession()
-            player.replaceCurrentItem(with: nil)
+            player.destroy()
         }
     }
 
@@ -380,8 +375,7 @@ final class PlayerModel {
     }
 
     private func resetEpisodeState() {
-        player.pause()
-        player.replaceCurrentItem(with: nil)
+        player.stop()
         phase = .fetching
         candidates = []
         preferredCandidates = []
@@ -391,7 +385,6 @@ final class PlayerModel {
         preferences = []
         danmaku = []
         playable = nil
-        videoOutput = nil
         watchTogetherHoldDone = false
         currentTime = 0
         duration = 0
@@ -414,7 +407,7 @@ final class PlayerModel {
         reportProgress(force: true)
         phase = .resolving
         // 换源时从当前位置继续; 首次播放从上次记录的位置开始
-        let switchingAt = player.currentItem == nil ? nil : currentTime
+        let switchingAt = hasMedia ? currentTime : nil
         resolveTask = Task { [weak self] in
             do {
                 let resumeAt: TimeInterval
@@ -425,23 +418,17 @@ final class PlayerModel {
                 }
                 let playable = try await session.resolveSelected(startPositionMillis: Int64(resumeAt * 1000))
                 guard let self, !Task.isCancelled else { return }
-                let asset = AVURLAsset(
-                    url: URL(string: playable.url)!,
-                    options: ["AVURLAssetHTTPHeaderFieldsKey": playable.headers],
-                )
-                let item = AVPlayerItem(asset: asset)
-                let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                ])
-                item.add(output)
-                videoOutput = output
-                lastTransferredBytes = 0
-                player.replaceCurrentItem(with: item)
                 self.playable = playable
-                observeEnd(of: item)
                 // 换源后时间轴可能不同, 重新加载跳过片段
                 resetSkipState()
-                if resumeAt > 0 { await player.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
+                player.setSpeed(Double(playbackRate))
+                player.load(
+                    url: playable.url,
+                    headers: playable.headers,
+                    start: resumeAt,
+                    autoplay: !holdsForWatchTogether(),
+                )
+                currentTime = resumeAt
                 phase = .playing
                 startPlaybackAfterLoad()
             } catch {
@@ -492,24 +479,35 @@ final class PlayerModel {
     }
 
     private func observePlayer() {
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
-            queue: .main,
-        ) { [weak self] time in
-            // 回调在主队列上; 闭包体放进方法里, 避免在嵌套闭包里隐式使用 self
-            MainActor.assumeIsolated { self?.onPeriodicTime(time) }
+        player.setEnhancement(enhancementMode.rawValue)
+        player.onChange = { [weak self] in
+            MainActor.assumeIsolated { self?.onPlayerChanged() }
         }
-        rateObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
-            let playing = player.timeControlStatus != .paused
-            Task { @MainActor [weak self] in self?.onPlayingChanged(playing) }
+        player.onEndOfFile = { [weak self] in
+            MainActor.assumeIsolated { self?.onPlayedToEnd() }
         }
+        player.onLoadFailed = { [weak self] message in
+            MainActor.assumeIsolated { self?.onLoadFailed(message) }
+        }
+        // 后台只保留声音; 回到前台恢复画面
+        let center = NotificationCenter.default
+        backgroundObservers = [
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.player.setVideoEnabled(false) }
+            },
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.player.setVideoEnabled(true) }
+            },
+        ]
     }
 
-    private func onPeriodicTime(_ time: CMTime) {
-        guard phase == .playing else { return }
-        currentTime = time.seconds.isFinite ? time.seconds : 0
-        let itemDuration = player.currentItem?.duration.seconds ?? 0
-        duration = itemDuration.isFinite ? itemDuration : 0
+    private func onPlayerChanged() {
+        let playing = player.hasMedia && !player.isPaused
+        if playing != isPlaying { onPlayingChanged(playing) }
+        guard phase == .playing, player.hasMedia else { return }
+        currentTime = player.position.isFinite ? player.position : 0
+        duration = player.duration.isFinite ? player.duration : 0
+        networkSpeed = player.cacheSpeed
         if isPlaying {
             reportProgress()
             loadSkipSegmentsIfNeeded()
@@ -523,20 +521,13 @@ final class PlayerModel {
         if paused { reportProgress(force: true) }
     }
 
-    /// 播放自然结束且离结尾足够近时, 按设置自动播放下一集.
-    private func observeEnd(of item: AVPlayerItem) {
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification,
-            object: item,
-            queue: .main,
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.onPlayedToEnd() }
-        }
+    private func onLoadFailed(_ message: String) {
+        guard phase == .playing else { return }
+        phase = .failed("视频加载失败 (\(message)), 请换一个资源")
     }
 
     private func onPlayedToEnd() {
-        let position = player.currentTime().seconds
+        let position = player.position
         currentTime = position.isFinite ? position : currentTime
         reportProgress(force: true)
         guard settings()?.autoPlayNext == true,
@@ -549,14 +540,15 @@ final class PlayerModel {
     /// 媒体加载完成后开始播放. 在一起看房间中 (房主或跟随房主) 首次加载后先暂停, 等房主开始播放;
     /// 跟随者随后同步到房主的位置与状态.
     private func startPlaybackAfterLoad() {
-        player.defaultRate = playbackRate
-        guard let watchTogether = core?.watchTogether, !watchTogetherHoldDone, watchTogether.isSyncActive() else {
-            player.play()
-            return
-        }
+        guard holdsForWatchTogether(), let watchTogether = core?.watchTogether else { return }
         watchTogetherHoldDone = true
-        player.pause()
         if let target = watchTogether.initialTarget() { apply(target) }
+    }
+
+    /// 本集首次加载时是否应先暂停, 等待房主.
+    private func holdsForWatchTogether() -> Bool {
+        guard let watchTogether = core?.watchTogether else { return false }
+        return !watchTogetherHoldDone && watchTogether.isSyncActive()
     }
 
     private func observeWatchTogether(_ watchTogether: AniWatchTogether) {
@@ -568,7 +560,6 @@ final class PlayerModel {
         playerTasks.append(Task { [weak self] in
             while !Task.isCancelled {
                 self?.reportWatching(to: watchTogether)
-                self?.sampleNetworkSpeed()
                 try? await Task.sleep(for: .seconds(1))
             }
         })
@@ -583,8 +574,8 @@ final class PlayerModel {
             play(episode: episode)
             return
         }
-        guard directive.episodeId == target.episode.id, phase == .playing, player.currentItem != nil else { return }
-        let local = player.currentTime().seconds.isFinite ? player.currentTime().seconds : currentTime
+        guard directive.episodeId == target.episode.id, phase == .playing, hasMedia else { return }
+        let local = player.position.isFinite ? player.position : currentTime
         let targetSeconds = TimeInterval(directive.positionMillis) / 1000
         var appliedDelta: Int64?
         if directive.forceSeek || abs(local - targetSeconds) > 3 {
@@ -593,8 +584,8 @@ final class PlayerModel {
         }
         if abs(directive.playbackRate - playbackRate) > 0.001 { setPlaybackRate(directive.playbackRate) }
         if directive.paused {
-            if player.timeControlStatus != .paused { player.pause() }
-        } else if player.timeControlStatus == .paused {
+            if !player.isPaused { player.pause() }
+        } else if player.isPaused {
             player.play()
         }
         if let appliedDelta, !directive.forceSeek {
@@ -605,8 +596,8 @@ final class PlayerModel {
     /// 每秒上报一次本地播放状态; 媒体加载前上报 "加载中", 让房间成员能同时打开这一集.
     private func reportWatching(to watchTogether: AniWatchTogether) {
         guard session != nil else { return }
-        let loaded = phase == .playing && player.currentItem != nil
-        let position = loaded && player.currentTime().seconds.isFinite ? player.currentTime().seconds : 0
+        let loaded = phase == .playing && hasMedia
+        let position = loaded && player.position.isFinite ? player.position : 0
         watchTogether.reportWatching(
             subjectId: target.subject.id,
             episodeId: target.episode.id,
@@ -615,20 +606,10 @@ final class PlayerModel {
             episodeName: target.episode.displayName,
             positionMillis: Int64(position * 1000),
             durationMillis: loaded ? Int64(duration * 1000) : 0,
-            paused: !loaded || player.timeControlStatus == .paused,
-            buffering: loaded && player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+            paused: !loaded || player.isPaused,
+            buffering: loaded && player.isBuffering,
             playbackRate: playbackRate,
         )
-    }
-
-    private func sampleNetworkSpeed() {
-        guard let events = player.currentItem?.accessLog()?.events else {
-            networkSpeed = 0
-            return
-        }
-        let total = events.reduce(Int64(0)) { $0 + max(0, $1.numberOfBytesTransferred) }
-        networkSpeed = lastTransferredBytes > 0 ? Double(max(0, total - lastTransferredBytes)) : 0
-        lastTransferredBytes = total
     }
 
     private static func describe(_ error: Error) -> String {

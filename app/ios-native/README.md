@@ -27,7 +27,7 @@ app/ios-native/
 ## 分层
 
 ```
-SwiftUI 视图 ── @Observable 模型 ── AVPlayer / 弹幕 CALayer      (Swift, 全部新写)
+SwiftUI 视图 ── @Observable 模型 ── mpv (MPVKit) / 弹幕 CALayer  (Swift, 全部新写)
                     │
              AniCore.framework                                    (唯一边界)
                     │
@@ -43,8 +43,9 @@ SwiftUI 视图 ── @Observable 模型 ── AVPlayer / 弹幕 CALayer      (
   (条目详情, 收藏, 时间表) 发出带 `error` 字段的值. SKIE 只在构建 iOS framework 时应用, 版本须支持当前的 Kotlin 版本.
   SKIE 生成的 Swift 模块与 framework 同名 (`AniCore`), 因此 facade 的入口类不能也叫 `AniCore`, 命名为 `AniClient`.
 - 界面状态全部归 Swift `@Observable`. Kotlin 只负责查询, 选择与解析, 不持有屏幕状态.
-- Swift 持有 `AVPlayer`. `AniEpisodeSession.resolveSelected()` 返回可播放 URL, 请求头与外挂字幕, Swift 用它创建
-  `AVURLAsset`. 播放进度从不跨边界.
+- Swift 持有播放内核 `MPVPlayer` (libmpv, 由 [MPVKit](https://github.com/mpvkit/MPVKit) 的 LGPL 构建以 Swift Package 引入).
+  画面经 gpu-next (Vulkan → MoltenVK → Metal) 渲染到一个 `CAMetalLayer`, 硬件解码用 VideoToolbox; 内嵌与全屏共用
+  这一个画面视图. `AniEpisodeSession.resolveSelected()` 返回可播放 URL 与请求头, 交给 mpv 的 `loadfile`. 播放进度从不跨边界.
 - 弹幕一次性取回整集 (`fetchDanmaku()`), 由 Swift 的 `DanmakuOverlayView` 按播放器时间逐帧排布, 也不跨边界.
 
 ## 一集的播放流程
@@ -134,10 +135,10 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 | 追番 | 按收藏类型列出, 续看进度, 一键播放下一集, 下拉刷新 | `SubjectCollectionRepository` 的最近更新收藏与续看状态 |
 | 搜索 | 系统搜索栏, 分页 | `AniSubjectSearchService` |
 | 条目详情 | 收藏状态菜单, 继续观看, 剧集左滑 / 长按标记看过 | `SetSubjectCollectionTypeOrDeleteUseCase`, `EpisodeCollectionRepository` |
-| 播放 | 自动选源, 续播上次位置, 每 5 秒及暂停/退出时保存进度, 看到 90% 自动标记看过, 画中画, HLS 去广告 | 选源用例, `MediaResolver`, `EpisodePlayHistoryRepository`, `HlsPlaybackPreparer`, 标记规则同 `MarkAsWatchedExtension` |
+| 播放 | mpv 内核 (可播放 MKV 等 AVPlayer 不支持的容器), 自动选源, 续播上次位置, 每 5 秒及暂停/退出时保存进度, 看到 90% 自动标记看过, HLS 去广告, 后台只保留声音 | 选源用例, `MediaResolver`, `EpisodePlayHistoryRepository`, `HlsPlaybackPreparer`, 标记规则同 `MarkAsWatchedExtension` |
 | 播放页 | 自上而下: 视频, 标题与收藏 / 评分 / 开播时间, 播放源 (折叠, 点按选源), 弹幕源 (折叠, 点按按源开关弹幕), 评论 (折叠; 展开后占满下方并单独滚动, 底部评论框), 横向剧照剧集列表 (长按标记看过) 与全部剧集网格, 相关推荐; 跟随系统深浅色; 全屏时 iPhone 自动横屏 | `SubjectCollectionRepository`, `GetSubjectRecommendationUseCase`, `DanmakuInfo.serviceId` |
-| 画质增强 / 播放信息 / 外部链接 | 更多选项菜单中切换画质增强 (性能优先 / 最高质量 / 关闭, 默认档位可在设置中修改), 显示播放信息 (分辨率, 帧率, 编码, 码率, 实时输入, 丢帧), 复制或访问视频流链接与数据源页面 | 上游 `app/ios` 的 `EnhancedPlayerView` (Metal), `PlayerStatsOverlay`, `ShareEpisodeDropdown` 的行为 |
-| 全屏播放 | 横屏玻璃控件: 顶部网速 / 标题 / 时间 / 电量; 关闭播放页, 画面填充 / 适应, 切换竖屏; 画中画, 选集; 截图 (保存到相册), 锁定; 倍速加减; 底栏上一集 / 播放 / 下一集 / 跳过 OP/ED / 进度 / 设置菜单 (一起看, 画质增强, 弹幕设置, 切换播放源, 播放信息, 外部链接, 下载) | `AVPlayerItemVideoOutput`, `PHPhotoLibrary` |
+| 画质增强 / 播放信息 / 外部链接 | 更多选项菜单中切换画质增强 (性能优先: 去色带; 最高质量: 去色带 + ewa_lanczossharp 缩放; 默认档位可在设置中修改), 显示播放信息 (mpv 解码方式, 分辨率, 帧率, 编码, 码率, 实时输入, 缓冲, 丢帧), 复制或访问视频流链接与数据源页面 | 上游 `PlayerStatsOverlay`, `ShareEpisodeDropdown` 的行为 |
+| 全屏播放 | 横屏玻璃控件: 顶部网速 / 标题 / 时间 / 电量; 关闭播放页, 画面填充 / 适应, 切换竖屏; 选集; 截图 (mpv `screenshot-to-file`, 保存到相册), 锁定; 倍速加减; 底栏上一集 / 播放 / 下一集 / 跳过 OP/ED / 进度 / 设置菜单 (一起看, 画质增强, 弹幕设置, 切换播放源, 播放信息, 外部链接, 下载) | `PHPhotoLibrary` |
 | 一起看 | 输入房间名与密码加入或创建房间, 成员列表与在线状态, 跟随房主; 房主与跟随者首次加载后暂停等待房主, 位置相差超过 3 秒时自动校正并同步速度与播放状态; 房主切换剧集时同条目内自动切换, 换条目时提示前往 | `WatchTogetherManager`, `LocalPlaybackBridge`, 同步规则同上游 `WatchTogetherPlayerExtension` |
 | OP/ED 与下一集 | 按服务器汇总的跳过点自动跳过 (开始前 5 秒提示, 可取消), 手动跳过按钮 (上报跳过点), 播完自动播放下一集, 下一集按钮; 在同一播放页内切换剧集 | `AutoSkipRepository`, 片段与跳过规则同上游 `PlayerSkipOpEdState`, 下一集规则同 `SwitchNextEpisodeExtension` |
 | 选源面板 | 全部 / 符合偏好的资源, 字幕组 · 分辨率 · 字幕 · 数据源四维偏好, 每个数据源的查询状态与重试 | `MediaSelector` 的偏好项, `MediaFetchSession` |
@@ -156,6 +157,8 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 关闭授权页即取消本次登录.
 
 ## 已知差异与待办
+
+- 画中画与 AirPlay 尚未在 mpv 内核上实现, 在 M2 验证 (见 [GOALS.md](GOALS.md)).
 
 - 自动跳过 OP/ED 只用服务器汇总的跳过点, 不读取视频文件自带的章节; 也不为跳转目标预缓存 (上游经 HLS 代理预取分片),
   跳过后可能需要短暂缓冲.
