@@ -45,4 +45,6 @@ install(DIRECTORY ${anitorrent_cpp}/include/ DESTINATION include/anitorrent)
 # 冒烟测试: 在模拟器中运行 (xcrun simctl spawn), 验证 libtorrent 能启动会话, 连上 DHT 并获取种子元数据
 add_executable(lt-smoke smoke/main.cpp)
 target_link_libraries(lt-smoke PRIVATE anitorrent-core)
-install(TARGETS lt-smoke RUNTIME DESTINATION bin)
+# iOS 上可执行文件默认打包为 .app; 冒烟测试是命令行程序, 由 simctl spawn 直接运行
+set_target_properties(lt-smoke PROPERTIES MACOSX_BUNDLE OFF)
+install(TARGETS lt-smoke RUNTIME DESTINATION bin BUNDLE DESTINATION bin)
