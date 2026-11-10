@@ -17,11 +17,12 @@ struct AniNativeApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                // 一起看的提示与跳转读取 AppServices, 必须位于 environment 之内
+                .watchTogetherHost()
                 .environment(services)
                 .task { await services.observeSession() }
                 .task { await services.observeSettings() }
                 .task { await services.watchTogether.observe(core: services.core) }
-                .watchTogetherHost()
         }
         .onChange(of: scenePhase) { _, phase in
             services.core.watchTogether.setAppForeground(foreground: phase == .active)
