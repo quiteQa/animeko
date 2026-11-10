@@ -18,7 +18,7 @@ final class WatchTogetherModel {
 
     var isInRoom: Bool { room?.status == .inRoom }
 
-    func observe(core: AniCore) async {
+    func observe(core: AniClient) async {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor in
                 for await room in core.watchTogether.roomUpdates { self.room = room }
@@ -36,7 +36,7 @@ final class WatchTogetherModel {
     }
 
     /// 打开房主正在看的剧集.
-    func open(_ navigation: AniWatchTogetherNavigation, core: AniCore) async {
+    func open(_ navigation: AniWatchTogetherNavigation, core: AniClient) async {
         pendingNavigation = nil
         do {
             let detail = try await core.subjectDetail(subjectId: navigation.subjectId)

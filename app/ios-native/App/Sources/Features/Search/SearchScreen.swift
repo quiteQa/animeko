@@ -15,7 +15,7 @@ final class SearchModel {
 
     private static let pageSize: Int32 = 20
 
-    func submit(core: AniCore) {
+    func submit(core: AniClient) {
         let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return }
         searchTask?.cancel()
@@ -25,12 +25,12 @@ final class SearchModel {
         loadPage(core: core)
     }
 
-    func loadMore(core: AniCore) {
+    func loadMore(core: AniClient) {
         guard !isLoading, !reachedEnd, !results.isEmpty else { return }
         loadPage(core: core)
     }
 
-    private func loadPage(core: AniCore) {
+    private func loadPage(core: AniClient) {
         let keyword = searchedKeyword
         let offset = Int32(results.count)
         isLoading = true

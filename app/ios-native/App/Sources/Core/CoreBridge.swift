@@ -1,7 +1,7 @@
 import AniCore
 import Foundation
 
-// AniCore 到 Swift 的桥接由 SKIE 生成: Kotlin `suspend` 是 `async throws`, `Flow` 是可以 `for await` 的序列,
+// AniClient 到 Swift 的桥接由 SKIE 生成: Kotlin `suspend` 是 `async throws`, `Flow` 是可以 `for await` 的序列,
 // 取消所在的 Task 即停止收集. 这里只放 SKIE 不覆盖的小工具.
 
 extension Error {

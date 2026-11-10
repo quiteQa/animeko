@@ -12,7 +12,7 @@ final class CollectionModel {
     private static let limit: Int32 = 100
 
     /// 观察本地缓存. 切换类型时由视图的 `.task(id:)` 重新调用.
-    func observe(core: AniCore) async {
+    func observe(core: AniClient) async {
         items = []
         for await update in core.collectionUpdates(type: type, limit: Self.limit) {
             if let list = update.items {
@@ -24,7 +24,7 @@ final class CollectionModel {
     }
 
     /// 从服务器拉取最新收藏到本地缓存, 结果经 `observe` 送达.
-    func refresh(core: AniCore) async {
+    func refresh(core: AniClient) async {
         isRefreshing = true
         errorMessage = nil
         defer { isRefreshing = false }

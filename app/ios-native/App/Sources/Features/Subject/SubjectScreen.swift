@@ -9,7 +9,7 @@ final class SubjectModel {
     private(set) var actionError: String?
 
     /// 观察条目详情; 收藏或观看状态变更后自动更新.
-    func observe(subjectId: Int32, core: AniCore) async {
+    func observe(subjectId: Int32, core: AniClient) async {
         errorMessage = nil
         for await update in core.subjectDetailUpdates(subjectId: subjectId) {
             if let detail = update.detail {
@@ -21,11 +21,11 @@ final class SubjectModel {
         }
     }
 
-    func setCollectionType(_ type: AniCollectionType, subjectId: Int32, core: AniCore) async {
+    func setCollectionType(_ type: AniCollectionType, subjectId: Int32, core: AniClient) async {
         await perform { try await core.setSubjectCollectionType(subjectId: subjectId, type: type) }
     }
 
-    func setWatched(_ watched: Bool, episode: AniEpisode, subjectId: Int32, core: AniCore) async {
+    func setWatched(_ watched: Bool, episode: AniEpisode, subjectId: Int32, core: AniClient) async {
         await perform { try await core.setEpisodeWatched(subjectId: subjectId, episodeId: episode.id, watched: watched) }
     }
 

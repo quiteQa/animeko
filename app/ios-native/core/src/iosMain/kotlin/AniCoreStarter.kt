@@ -24,15 +24,15 @@ import me.him188.ani.utils.io.resolve
 import me.him188.ani.utils.logging.IosLoggingConfigurator
 import org.koin.core.context.startKoin
 
-private var instance: AniCore? = null
+private var instance: AniClient? = null
 
 /**
- * 启动 Kotlin 侧并返回 [AniCore]. 由 Swift 在 App 启动时于主线程调用一次; 重复调用返回同一实例.
+ * 启动 Kotlin 侧并返回 [AniClient]. 由 Swift 在 App 启动时于主线程调用一次; 重复调用返回同一实例.
  *
  * Koin 装配复用上游的 `getCommonKoinModule` 与 `getIosModules`, 与 Compose 版 iOS 客户端的数据层完全相同,
  * 但不创建任何 Compose 界面. 音频会话 (`AVAudioSession`) 由 Swift 侧的播放器配置.
  */
-fun startAniCore(): AniCore {
+fun startAniCore(): AniClient {
     instance?.let { return it }
 
     val scope = createAppRootCoroutineScope()
@@ -49,5 +49,5 @@ fun startAniCore(): AniCore {
         modules(getIosModules(context, context.files.dataDir.resolve("torrent"), scope))
     }.startCommonKoinModule(context, scope).koin
 
-    return AniCore(koin, scope, Dispatchers.Main).also { instance = it }
+    return AniClient(koin, scope, Dispatchers.Main).also { instance = it }
 }

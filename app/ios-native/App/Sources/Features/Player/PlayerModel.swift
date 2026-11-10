@@ -69,7 +69,7 @@ final class PlayerModel {
     /// 当前剧集的 Kotlin 会话, 供手动查找使用.
     var currentSession: AniEpisodeSession? { session }
 
-    @ObservationIgnored private var core: AniCore?
+    @ObservationIgnored private var core: AniClient?
     @ObservationIgnored private var settings: () -> AniSettings? = { nil }
     @ObservationIgnored private var session: AniEpisodeSession?
     /// 随当前剧集会话存续的任务, 切换剧集时取消.
@@ -105,7 +105,7 @@ final class PlayerModel {
     }
 
     /// 开始播放. `settings` 每次读取时返回当前设置.
-    func start(core: AniCore, settings: @escaping () -> AniSettings?) {
+    func start(core: AniClient, settings: @escaping () -> AniSettings?) {
         guard self.core == nil else { return }
         self.core = core
         self.settings = settings

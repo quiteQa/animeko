@@ -13,7 +13,7 @@ final class BangumiLoginModel {
 
     @ObservationIgnored private var task: Task<Void, Never>?
 
-    func start(core: AniCore) {
+    func start(core: AniClient) {
         guard !isRunning else { return }
         isRunning = true
         errorMessage = nil

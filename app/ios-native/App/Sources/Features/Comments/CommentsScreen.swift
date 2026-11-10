@@ -28,14 +28,14 @@ final class CommentsModel {
         self.source = source
     }
 
-    func reload(core: AniCore) async {
+    func reload(core: AniClient) async {
         cursor = nil
         reachedEnd = false
         items = []
         await loadMore(core: core)
     }
 
-    func loadMore(core: AniCore) async {
+    func loadMore(core: AniClient) async {
         guard !isLoading, !reachedEnd else { return }
         isLoading = true
         errorMessage = nil
@@ -56,7 +56,7 @@ final class CommentsModel {
         }
     }
 
-    func post(core: AniCore) async {
+    func post(core: AniClient) async {
         guard case .episode(let id) = source else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }

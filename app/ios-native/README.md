@@ -8,7 +8,7 @@
 app/ios-native/
 ├── core/            Kotlin facade, Gradle 模块 :app:ios-native:core, 产出 AniCore.framework
 │   └── src/
-│       ├── commonMain/   AniCore, AniEpisodeSession, 值类型与映射 (桌面端可编译与测试)
+│       ├── commonMain/   AniClient, AniEpisodeSession, 值类型与映射 (桌面端可编译与测试)
 │       ├── iosMain/      startAniCore(): 启动 Koin, 不创建任何 Compose 界面
 │       └── commonTest/
 └── App/             SwiftUI App (XcodeGen + CocoaPods)
@@ -31,16 +31,17 @@ SwiftUI 视图 ── @Observable 模型 ── AVPlayer / 弹幕 CALayer      (
                     │
              AniCore.framework                                    (唯一边界)
                     │
-   AniCore / AniEpisodeSession (Kotlin facade, 新写, 薄)
+   AniClient / AniEpisodeSession (Kotlin facade, 新写, 薄)
                     │
  app-data · datasource · danmaku · application 的 Koin 装配        (上游, 不改)
 ```
 
-- Swift 只调用 `AniCore` 与 `AniEpisodeSession`. 它们只暴露 `Ani*` 值类型 (String / Int / Long / List / Map),
+- Swift 只调用 `AniClient` 与 `AniEpisodeSession`. 它们只暴露 `Ani*` 值类型 (String / Int / Long / List / Map),
   不暴露任何 app-data 类型; 上游数据模型变动时只需改 `core/src/commonMain/kotlin/Mappers.kt`.
 - 桥接由 [SKIE](https://skie.touchlab.co/) 生成: `suspend` 函数在 Swift 中是 `async throws`, facade 中返回 `Flow` 的
   `*Updates` 在 Swift 中可以 `for await`, 取消所在的 Task 即停止收集. SKIE 的序列不抛出错误, 需要报错的 Flow
   (条目详情, 收藏, 时间表) 发出带 `error` 字段的值. SKIE 只在构建 iOS framework 时应用, 版本须支持当前的 Kotlin 版本.
+  SKIE 生成的 Swift 模块与 framework 同名 (`AniCore`), 因此 facade 的入口类不能也叫 `AniCore`, 命名为 `AniClient`.
 - 界面状态全部归 Swift `@Observable`. Kotlin 只负责查询, 选择与解析, 不持有屏幕状态.
 - Swift 持有 `AVPlayer`. `AniEpisodeSession.resolveSelected()` 返回可播放 URL, 请求头与外挂字幕, Swift 用它创建
   `AVURLAsset`. 播放进度从不跨边界.

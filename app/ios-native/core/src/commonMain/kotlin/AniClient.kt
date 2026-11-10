@@ -48,7 +48,7 @@ import kotlin.time.Clock
  *
  * 实例由平台入口创建 (iOS: `AniCoreStarterKt.startAniCore()`), 整个进程只有一个.
  */
-class AniCore internal constructor(
+class AniClient internal constructor(
     private val koin: Koin,
     private val scope: CoroutineScope,
     private val callbackContext: CoroutineContext,

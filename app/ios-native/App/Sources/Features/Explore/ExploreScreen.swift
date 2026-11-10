@@ -9,7 +9,7 @@ final class ExploreModel {
     private(set) var schedule: [AniScheduleDay] = []
     private(set) var scheduleError: String?
 
-    func loadTrending(core: AniCore) async {
+    func loadTrending(core: AniClient) async {
         trendingError = nil
         do {
             trending = try await core.trendingSubjects()
@@ -18,7 +18,7 @@ final class ExploreModel {
         }
     }
 
-    func observeSchedule(core: AniCore) async {
+    func observeSchedule(core: AniClient) async {
         scheduleError = nil
         for await update in core.scheduleUpdates() {
             if let days = update.days {
