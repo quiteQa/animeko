@@ -46,7 +46,7 @@
 
 | 里程碑 | 内容 |
 | --- | --- |
-| M0 | 验证 libtorrent 能交叉编译到 iOS 并运行 |
+| M0 | 验证 libtorrent 能交叉编译到 iOS 并运行. **已完成**: 见 [libtorrent/](libtorrent/README.md); 模拟器冒烟测试连上 DHT (95 个节点), 通过 DHT 取得公开种子的元数据, 并启动了 anitorrent 的 `session_t` |
 | M1 | 未定 |
 | M2 | 验证 MPV 下画中画与 AirPlay 的可行性 |
 | M3 | BT 边下边播 |
@@ -58,12 +58,12 @@
 | 决策 | 对比 | 当前实现 | 需要的改动 |
 | --- | --- | --- | --- |
 | 1. MPV 内核 | **冲突** | Swift 持有 `AVPlayer`; `AniEpisodeSession.resolveSelected()` 返回 URL 交给 `AVURLAsset`. 画质增强 (Metal), 播放信息, 截图 (`AVPlayerItemVideoOutput`), 倍速, 一起看同步都建立在 AVPlayer 上 | 换成 libmpv. 上述功能需要在 MPV 上重新实现; MPV 自带解码, 可以播放 AVPlayer 不支持的 MKV 等容器 |
-| 2. 首版做 BT | **冲突** | 不支持 BT: 上游 `MediaSourceManager` 在 iOS 上排除 BT 数据源, iOS 没有本地 BT 引擎; README 也写明不提供 BT 列表页 | 交叉编译 libtorrent; 修改上游 `MediaSourceManager` 中排除 iOS 的那一行 (与"上游只改 `settings.gradle.kts` 一行"的约定冲突, 需要接受额外的上游改动) |
+| 2. 首版做 BT | **冲突** (M0 已验证 libtorrent 可在 iOS 上编译运行) | 不支持 BT: 上游 `MediaSourceManager` 在 iOS 上排除 BT 数据源, iOS 没有本地 BT 引擎; README 也写明不提供 BT 列表页 | 交叉编译 libtorrent; 修改上游 `MediaSourceManager` 中排除 iOS 的那一行 (与"上游只改 `settings.gradle.kts` 一行"的约定冲突, 需要接受额外的上游改动) |
 | 3. 仅 iOS 26 | 一致 | `project.yml` 的部署目标是 iOS 26.0, 界面直接使用 Liquid Glass, 没有降级 | 无 |
 | 4. 画中画与 AirPlay | 部分一致, 新增风险 | 画中画已实现, 基于 `AVPlayerLayer` 的 `AVPictureInPictureController`; AirPlay 没有专门处理 (AVPlayer 默认可投送) | 换到 MPV 后画中画需要重新实现 (见决策 4), AirPlay 方案在 M2 验证 |
 | 5. 不分发不开源 | 一致 | README: "只面向 iOS, 不向上游提交" | 补充 "不分发, 不开源" 的说明 (本文) |
 | 6. SKIE 桥接 | 一致 (已实现) | SKIE 0.10.16 (支持 Kotlin 2.4); facade 的 `observe*(listener)` 改为返回 `Flow` 的 `*Updates`, Swift 直接 `for await` | 无 |
-| 7. 锁定上游正式版 | **冲突** | 分支基于上游 `main`, 位于 `v6.4.0` 之后 16 个提交, 不是正式版 | 改为基于最新正式版 (目前是 `v6.4.0`), 之后按需升级 |
+| 7. 锁定上游正式版 | 一致 (已实现) | 分支基于上游正式版 `v6.4.0` | 之后按需升级 |
 | 8. 免费 Apple ID 签名 | 一致 | CI 产出未签名 IPA, 由 SideStore / AltStore 用自己的 Apple ID 重签 | 补充 7 天过期, 3 个应用上限, 推送与 iCloud 不可用的限制 (本文) |
 | 首版范围: 在线源 | 一致 | 已实现, 选源与解析复用上游 | 换内核后回归 |
 | 首版范围: Jellyfin | 新增 | 没有专门适配, 也未验证 Jellyfin 源能否在 iOS 上查询和播放 | M1 之前验证 |
