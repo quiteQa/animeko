@@ -76,10 +76,12 @@ struct SubjectScreen: View {
                         Button {
                             playing = target
                         } label: {
-                            Label(
-                                nextEpisode == nil ? "开始观看" : "继续观看 第 \(target.episode.sort) 话",
-                                systemImage: "play.fill",
-                            )
+                            // 列表行会把图标染成强调色, 与按钮底色相同; 图标与文字统一为白色
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.fill")
+                                Text(nextEpisode == nil ? "开始观看" : "继续观看 第 \(target.episode.sort) 话")
+                            }
+                            .foregroundStyle(.white)
                             .lineLimit(1)
                         }
                         .buttonStyle(.glassProminent)

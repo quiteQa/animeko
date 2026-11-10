@@ -3,12 +3,14 @@ import AVKit
 import Combine
 import SwiftUI
 
-/// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个 `AVPlayer` 的全屏视图:
-/// 切换到竖屏回到播放页, 播放继续; 关闭则连同播放页一起关闭. iPhone 上全屏期间界面横屏.
+/// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个 `AVPlayer` 的全屏视图, 由播放页叠放在自身之上
+/// (不是模态页), 横竖屏旋转与全屏切换在同一次系统旋转动画中完成. 切换到竖屏回到播放页, 播放继续;
+/// 关闭则连同播放页一起关闭. 界面方向由播放页控制.
 struct PlayerScreen: View {
     @Environment(AppServices.self) private var services
-    @Environment(\.dismiss) private var dismiss
     let model: PlayerModel
+    /// 退出全屏, 回到竖屏播放页.
+    let onExitFullscreen: () -> Void
     /// 关闭播放页 (而不只是退出全屏).
     let onClosePage: () -> Void
     @State private var controlsVisible = true
@@ -57,7 +59,7 @@ struct PlayerScreen: View {
                     canStartPictureInPicture: pictureInPicture != nil,
                     isLocked: $isLocked,
                     onClosePage: onClosePage,
-                    onExitFullscreen: { dismiss() },
+                    onExitFullscreen: onExitFullscreen,
                     onShowSources: { showsSourcePicker = true },
                     onShowWatchTogether: { showsWatchTogether = true },
                     onPictureInPicture: { pictureInPicture?.startPictureInPicture() },
@@ -90,7 +92,7 @@ struct PlayerScreen: View {
                 if let navigation = services.watchTogether.pendingNavigation {
                     // 先退出全屏, 再由根视图打开房主正在看的剧集
                     WatchTogetherNavigationBanner(navigation: navigation) {
-                        dismiss()
+                        onExitFullscreen()
                         try? await Task.sleep(for: .milliseconds(450))
                     }
                 }
@@ -131,14 +133,12 @@ struct PlayerScreen: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.pendingSkip?.name)
         .task { scheduleHideControls() }
-        .onAppear { OrientationLock.enterLandscape() }
-        .onDisappear { OrientationLock.restorePortrait() }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             // 横持过手机之后再竖过来, 即退出全屏回到播放页; 锁定时不响应
             guard !isLocked else { return }
             switch UIDevice.current.orientation {
             case .landscapeLeft, .landscapeRight: heldLandscape = true
-            case .portrait where heldLandscape: dismiss()
+            case .portrait where heldLandscape: onExitFullscreen()
             default: break
             }
         }

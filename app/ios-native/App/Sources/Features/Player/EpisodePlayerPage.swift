@@ -5,8 +5,9 @@ import SwiftUI
 
 /// 播放页. 自上而下: 视频, 标题, 播放源, 弹幕源, 剧集列表, 相关推荐.
 ///
-/// 视频固定在顶部, 其余内容在下方滚动. 页面持有 `PlayerModel` 与播放会话; 全屏只是同一个 `AVPlayer` 的另一个视图,
-/// 退出全屏后回到这里继续播放. 离开页面 (返回) 时才结束播放. iPhone 横过来时自动进入全屏.
+/// 视频固定在顶部, 其余内容在下方滚动. 页面持有 `PlayerModel` 与播放会话; 全屏是叠在页面之上的同一个 `AVPlayer`
+/// 的另一个视图, 与界面旋转一起淡入淡出, 退出全屏后回到这里继续播放. 离开页面 (返回) 时结束播放.
+/// iPhone 横过来时自动进入全屏.
 struct EpisodePlayerPage: View {
     @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
@@ -30,7 +31,7 @@ struct EpisodePlayerPage: View {
                 model: model,
                 isCovered: showsFullscreen,
                 onBack: { dismiss() },
-                onFullscreen: { showsFullscreen = true },
+                onFullscreen: enterFullscreen,
                 onShowSources: { showsSourcePicker = true },
                 onShowComments: { showsComments = true },
             )
@@ -62,14 +63,17 @@ struct EpisodePlayerPage: View {
         .background(Color(.systemGroupedBackground))
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
-        .fullScreenCover(isPresented: $showsFullscreen) {
-            PlayerScreen(model: model) {
-                // 先收起全屏, 再关闭播放页
-                showsFullscreen = false
-                Task {
-                    try? await Task.sleep(for: .milliseconds(400))
-                    dismiss()
+        .overlay {
+            if showsFullscreen {
+                PlayerScreen(model: model, onExitFullscreen: exitFullscreen) {
+                    // 先转回竖屏, 再关闭播放页
+                    OrientationLock.restorePortrait()
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(350))
+                        dismiss()
+                    }
                 }
+                .transition(.opacity)
             }
         }
         .sheet(isPresented: $showsSourcePicker) {
@@ -105,7 +109,7 @@ struct EpisodePlayerPage: View {
             // 界面锁定竖屏, 设备方向通知仍会到达: 横过手机即进入全屏
             guard UIDevice.current.userInterfaceIdiom == .phone, !showsFullscreen, model.phase == .playing,
                   UIDevice.current.orientation.isLandscape else { return }
-            showsFullscreen = true
+            enterFullscreen()
         }
         .onAppear { UIDevice.current.beginGeneratingDeviceOrientationNotifications() }
         .task {
@@ -120,11 +124,26 @@ struct EpisodePlayerPage: View {
             recommendations = (try? await services.core.subjectRecommendations(subjectId: model.target.subject.id)) ?? []
         }
         .onDisappear {
-            // 全屏覆盖也会触发 onDisappear; 只有真正离开播放页时才结束播放
-            if !showsFullscreen {
-                UIDevice.current.endGeneratingDeviceOrientationNotifications()
-                model.stop()
-            }
+            UIDevice.current.endGeneratingDeviceOrientationNotifications()
+            OrientationLock.restorePortrait()
+            model.stop()
+        }
+    }
+
+    /// 全屏画面淡入, 同时界面转为横屏; 两者在系统旋转动画中一起完成.
+    private func enterFullscreen() {
+        guard !showsFullscreen else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { showsFullscreen = true }
+        OrientationLock.enterLandscape()
+    }
+
+    /// 界面先转回竖屏, 旋转期间仍显示全屏画面, 转完后再淡出, 避免页面在横屏尺寸下闪现.
+    private func exitFullscreen() {
+        guard showsFullscreen else { return }
+        OrientationLock.restorePortrait()
+        Task {
+            try? await Task.sleep(for: .milliseconds(UIDevice.current.userInterfaceIdiom == .phone ? 350 : 0))
+            withAnimation(.easeInOut(duration: 0.25)) { showsFullscreen = false }
         }
     }
 
