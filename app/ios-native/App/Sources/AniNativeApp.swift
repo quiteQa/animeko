@@ -6,6 +6,7 @@ import SwiftUI
 struct AniNativeApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var services = AppServices()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // 画中画与后台播放需要 playback 音频会话, 必须在任何播放开始前激活.
@@ -19,6 +20,11 @@ struct AniNativeApp: App {
                 .environment(services)
                 .task { await services.observeSession() }
                 .task { await services.observeSettings() }
+                .task { await services.watchTogether.observe(core: services.core) }
+                .watchTogetherHost()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            services.core.watchTogether.setAppForeground(foreground: phase == .active)
         }
     }
 }
@@ -91,6 +97,9 @@ final class AppServices {
     private(set) var session: AniSession?
 
     var isLoggedIn: Bool { session?.loggedIn == true }
+
+    /// 一起看.
+    let watchTogether = WatchTogetherModel()
 
     /// 设置. Kotlin 侧首次回调前为 `nil`.
     private(set) var settings: AniSettings?

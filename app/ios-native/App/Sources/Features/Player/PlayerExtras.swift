@@ -49,8 +49,6 @@ struct PlayerMoreMenu<Label: View>: View {
     var onShowComments: (() -> Void)?
     @ViewBuilder let label: Label
 
-    @Environment(\.openURL) private var openURL
-
     var body: some View {
         Menu {
             Picker(selection: $model.enhancementMode) {
@@ -70,7 +68,7 @@ struct PlayerMoreMenu<Label: View>: View {
             }
 
             Menu {
-                externalLinks
+                ExternalLinksMenuContent(model: model)
             } label: {
                 SwiftUI.Label("外部链接", systemImage: "arrow.up.forward.app")
             }
@@ -88,9 +86,15 @@ struct PlayerMoreMenu<Label: View>: View {
         }
         .accessibilityLabel("更多选项")
     }
+}
 
-    @ViewBuilder
-    private var externalLinks: some View {
+/// 「外部链接」子菜单的内容: 复制或访问视频流与数据源页面.
+struct ExternalLinksMenuContent: View {
+    let model: PlayerModel
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
         let links = ExternalLinks(model: model)
         if let stream = links.stream {
             Section("视频流链接") {

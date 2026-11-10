@@ -63,7 +63,14 @@ struct EpisodePlayerPage: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .fullScreenCover(isPresented: $showsFullscreen) {
-            PlayerScreen(model: model)
+            PlayerScreen(model: model) {
+                // 先收起全屏, 再关闭播放页
+                showsFullscreen = false
+                Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    dismiss()
+                }
+            }
         }
         .sheet(isPresented: $showsSourcePicker) {
             SourcePickerSheet(model: model)
@@ -106,6 +113,9 @@ struct EpisodePlayerPage: View {
             model.start(core: services.core, settings: { services.settings })
         }
         .task { await subject.observe(subjectId: model.target.subject.id, core: services.core) }
+        .onChange(of: subject.detail, initial: true) {
+            model.episodes = subject.detail?.episodes ?? []
+        }
         .task {
             recommendations = (try? await services.core.subjectRecommendations(subjectId: model.target.subject.id)) ?? []
         }

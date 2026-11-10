@@ -290,6 +290,9 @@ class AniCore internal constructor(
     /** 设置项. */
     val settings: AniSettingsStore by lazy { AniSettingsStore(koin, scope, callbackContext) }
 
+    /** 一起看. */
+    val watchTogether: AniWatchTogether by lazy { AniWatchTogether(koin, scope, callbackContext) }
+
     /** 缓存 (下载) 管理. */
     val downloads: AniDownloads by lazy { AniDownloads(koin, scope, callbackContext) }
 

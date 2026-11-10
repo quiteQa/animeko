@@ -32,6 +32,8 @@ targets:
         CFBundleDisplayName: Animeko
         UILaunchScreen: {}
         UIBackgroundModes: [audio]
+        # 播放器截图保存到相册
+        NSPhotoLibraryAddUsageDescription: 将播放器截图保存到相册
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         # 网页数据源与自建媒体库常见 http 地址
         NSAppTransportSecurity:

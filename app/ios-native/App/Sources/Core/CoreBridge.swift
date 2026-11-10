@@ -221,3 +221,42 @@ private final class DownloadsListener: NSObject, AniDownloadsListener {
     init(_ block: @escaping ([AniDownload]) -> Void) { self.block = block }
     func onDownloads(downloads: [AniDownload]) { block(downloads) }
 }
+
+extension AniWatchTogether {
+    var roomUpdates: AsyncStream<AniWatchTogetherRoom> {
+        stream { yield in observeRoom(listener: WatchTogetherRoomListener(yield)) }
+    }
+
+    var eventUpdates: AsyncStream<WatchTogetherEvent> {
+        stream { yield in observeEvents(listener: WatchTogetherEventListener(yield)) }
+    }
+
+    var directiveUpdates: AsyncStream<AniPlaybackDirective> {
+        stream { yield in observeDirectives(listener: WatchTogetherDirectiveListener(yield)) }
+    }
+}
+
+/// 一起看中需要提示用户的事件.
+enum WatchTogetherEvent {
+    case navigate(AniWatchTogetherNavigation)
+    case message(String)
+}
+
+private final class WatchTogetherRoomListener: NSObject, AniWatchTogetherRoomListener {
+    private let block: (AniWatchTogetherRoom) -> Void
+    init(_ block: @escaping (AniWatchTogetherRoom) -> Void) { self.block = block }
+    func onRoom(room: AniWatchTogetherRoom) { block(room) }
+}
+
+private final class WatchTogetherEventListener: NSObject, AniWatchTogetherEventListener {
+    private let block: (WatchTogetherEvent) -> Void
+    init(_ block: @escaping (WatchTogetherEvent) -> Void) { self.block = block }
+    func onNavigate(navigation: AniWatchTogetherNavigation) { block(.navigate(navigation)) }
+    func onMessage(message: String) { block(.message(message)) }
+}
+
+private final class WatchTogetherDirectiveListener: NSObject, AniWatchTogetherDirectiveListener {
+    private let block: (AniPlaybackDirective) -> Void
+    init(_ block: @escaping (AniPlaybackDirective) -> Void) { self.block = block }
+    func onDirective(directive: AniPlaybackDirective) { block(directive) }
+}

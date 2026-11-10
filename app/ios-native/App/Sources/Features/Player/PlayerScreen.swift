@@ -4,14 +4,17 @@ import Combine
 import SwiftUI
 
 /// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个 `AVPlayer` 的全屏视图:
-/// 关闭全屏回到播放页, 播放继续. iPhone 上全屏期间界面横屏.
+/// 切换到竖屏回到播放页, 播放继续; 关闭则连同播放页一起关闭. iPhone 上全屏期间界面横屏.
 struct PlayerScreen: View {
     @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
     let model: PlayerModel
+    /// 关闭播放页 (而不只是退出全屏).
+    let onClosePage: () -> Void
     @State private var controlsVisible = true
+    @State private var isLocked = false
     @State private var showsSourcePicker = false
-    @State private var showsComments = false
+    @State private var showsWatchTogether = false
     @State private var pictureInPicture: AVPictureInPictureController?
     @State private var hideControlsTask: Task<Void, Never>?
     @State private var heldLandscape = false
@@ -23,6 +26,7 @@ struct PlayerScreen: View {
             PlayerSurface(
                 player: model.player,
                 enhancementMode: model.enhancementMode,
+                fillsScreen: model.fillsScreen,
                 onEnhancementUnavailable: enhancementUnavailable,
                 onPictureInPictureReady: { pictureInPicture = $0 },
             )
@@ -42,8 +46,8 @@ struct PlayerScreen: View {
 
             if model.showsStats {
                 PlayerStatsOverlay(model: model)
-                    .padding(.top, controlsVisible ? 76 : 16)
-                    .padding(.leading, 16)
+                    .padding(.top, controlsVisible && !isLocked ? 96 : 16)
+                    .padding(.leading, 72)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
 
@@ -51,46 +55,62 @@ struct PlayerScreen: View {
                 PlayerControls(
                     model: model,
                     canStartPictureInPicture: pictureInPicture != nil,
-                    onClose: close,
+                    isLocked: $isLocked,
+                    onClosePage: onClosePage,
+                    onExitFullscreen: { dismiss() },
                     onShowSources: { showsSourcePicker = true },
-                    onShowComments: { showsComments = true },
+                    onShowWatchTogether: { showsWatchTogether = true },
                     onPictureInPicture: { pictureInPicture?.startPictureInPicture() },
                     onInteraction: scheduleHideControls,
                 )
+                .environment(\.colorScheme, .dark)
                 .transition(.opacity)
             }
         }
         .contentShape(.rect)
+        .onTapGesture(count: 2) {
+            guard !isLocked, model.phase == .playing else { return }
+            model.togglePlayback()
+        }
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
             if controlsVisible { scheduleHideControls() }
         }
-        .statusBarHidden(!controlsVisible)
-        .persistentSystemOverlays(controlsVisible ? .automatic : .hidden)
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $showsSourcePicker) {
             SourcePickerSheet(model: model)
                 .presentationDetents([.medium, .large])
         }
-        .sheet(isPresented: $showsComments) {
-            NavigationStack {
-                CommentsScreen(source: .episode(model.target.episode.id), title: "评论")
-            }
-            .presentationDetents([.medium, .large])
+        .sheet(isPresented: $showsWatchTogether) {
+            WatchTogetherSheet()
         }
         .overlay(alignment: .top) {
-            if let message = model.toastMessage {
-                Text(message)
-                    .font(.subheadline)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .glassEffect(.regular, in: .capsule)
-                    .padding(.top, 60)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .task(id: message) {
-                        try? await Task.sleep(for: .seconds(2))
-                        withAnimation { model.toastMessage = nil }
+            VStack(spacing: 8) {
+                if let navigation = services.watchTogether.pendingNavigation {
+                    // 先退出全屏, 再由根视图打开房主正在看的剧集
+                    WatchTogetherNavigationBanner(navigation: navigation) {
+                        dismiss()
+                        try? await Task.sleep(for: .milliseconds(450))
                     }
+                }
+                if let message = model.toastMessage ?? services.watchTogether.message {
+                    Text(message)
+                        .font(.subheadline)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .glassEffect(.regular, in: .capsule)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .task(id: message) {
+                            try? await Task.sleep(for: .seconds(2))
+                            withAnimation {
+                                if model.toastMessage == message { model.toastMessage = nil }
+                                if services.watchTogether.message == message { services.watchTogether.message = nil }
+                            }
+                        }
+                }
             }
+            .padding(.top, controlsVisible ? 100 : 16)
         }
         .overlay(alignment: .bottomTrailing) {
             // 自动跳过提示与控件层是否显示无关, 始终可以取消
@@ -104,8 +124,8 @@ struct PlayerScreen: View {
                 .padding(.leading, 16)
                 .padding(4)
                 .glassEffect(.regular, in: .capsule)
-                .padding(.trailing, 24)
-                .padding(.bottom, controlsVisible ? 150 : 40)
+                .padding(.trailing, 72)
+                .padding(.bottom, controlsVisible ? 80 : 24)
                 .transition(.opacity)
             }
         }
@@ -114,10 +134,11 @@ struct PlayerScreen: View {
         .onAppear { OrientationLock.enterLandscape() }
         .onDisappear { OrientationLock.restorePortrait() }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            // 横持过手机之后再竖过来, 即退出全屏回到播放页
+            // 横持过手机之后再竖过来, 即退出全屏回到播放页; 锁定时不响应
+            guard !isLocked else { return }
             switch UIDevice.current.orientation {
             case .landscapeLeft, .landscapeRight: heldLandscape = true
-            case .portrait where heldLandscape: close()
+            case .portrait where heldLandscape: dismiss()
             default: break
             }
         }
@@ -129,15 +150,11 @@ struct PlayerScreen: View {
         model.toastMessage = "当前视频无法使用画质增强"
     }
 
-    private func close() {
-        dismiss()
-    }
-
     private func scheduleHideControls() {
         hideControlsTask?.cancel()
         hideControlsTask = Task {
             try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled, model.isPlaying else { return }
+            guard !Task.isCancelled, model.isPlaying || isLocked else { return }
             withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
         }
     }

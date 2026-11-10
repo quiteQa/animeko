@@ -1,6 +1,9 @@
 import AniCore
 import AVFoundation
+import CoreImage
 import Foundation
+import Photos
+import UIKit
 
 /// 播放页状态. Swift 持有 `AVPlayer`; Kotlin 会话只负责查询, 选择, 解析, 进度记录与标记看过.
 ///
@@ -45,6 +48,14 @@ final class PlayerModel {
     var showsStats = false
     /// 当前正在播放的地址; 外部链接使用其中的原始播放地址.
     private(set) var playable: AniPlayable?
+    /// 画面填充屏幕 (裁切边缘); 为 `false` 时完整显示画面.
+    var fillsScreen = false
+    /// 播放速度.
+    private(set) var playbackRate: Float = 1
+    /// 最近一秒的下载速度 (字节/秒).
+    private(set) var networkSpeed: Double = 0
+    /// 本条目的全部剧集, 由播放页提供. 用于选集, 上一集与一起看切换剧集.
+    var episodes: [AniEpisode] = []
     /// 一次性的提示 (缓存结果, 自动下一集等), 显示后由视图清除.
     var toastMessage: String?
 
@@ -74,6 +85,15 @@ final class PlayerModel {
     /// 为当前媒体加载过跳过片段 (成功或失败都不再重试)
     @ObservationIgnored private var skipSegmentsRequested = false
     @ObservationIgnored private var isSwitchingEpisode = false
+    /// 截图读取当前帧.
+    @ObservationIgnored private var videoOutput: AVPlayerItemVideoOutput?
+    @ObservationIgnored private var lastTransferredBytes: Int64 = 0
+    /// 一起看: 本集首次加载后是否已决定 "加载后暂停, 等待房主".
+    @ObservationIgnored private var watchTogetherHoldDone = false
+    @ObservationIgnored private var playerTasks: [Task<Void, Never>] = []
+
+    /// 可选的播放速度.
+    static let rateSteps: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 
     /// 播放中上报进度的间隔 (秒)
     private static let reportInterval: TimeInterval = 5
@@ -94,6 +114,7 @@ final class PlayerModel {
             enhancementMode = VideoEnhancementMode(setting: current.videoEnhancementDefaultMode)
         }
         observePlayer()
+        observeWatchTogether(core.watchTogether)
         openSession()
     }
 
@@ -167,6 +188,52 @@ final class PlayerModel {
         isPlaying ? player.pause() : player.play()
     }
 
+    // MARK: - 速度, 截图
+
+    func setPlaybackRate(_ rate: Float) {
+        playbackRate = rate
+        player.defaultRate = rate
+        if isPlaying { player.rate = rate }
+    }
+
+    /// 切换到相邻的速度档位. `step` 为 1 加速, -1 减速.
+    func stepPlaybackRate(_ step: Int) {
+        let steps = Self.rateSteps
+        let index = steps.firstIndex { $0 >= playbackRate - 0.001 } ?? steps.count - 1
+        let next = steps[max(0, min(steps.count - 1, index + step))]
+        setPlaybackRate(next)
+    }
+
+    /// 截取当前画面并保存到相册.
+    func saveScreenshot() {
+        guard let output = videoOutput,
+              let buffer = output.copyPixelBuffer(forItemTime: player.currentTime(), itemTimeForDisplay: nil) else {
+            toastMessage = "暂时无法截图"
+            return
+        }
+        let image = CIImage(cvPixelBuffer: buffer)
+        guard let cgImage = CIContext().createCGImage(image, from: image.extent) else {
+            toastMessage = "暂时无法截图"
+            return
+        }
+        let photo = UIImage(cgImage: cgImage)
+        Task {
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else {
+                toastMessage = "没有相册权限, 请在设置中允许 Animeko 添加照片"
+                return
+            }
+            do {
+                try await PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAsset(from: photo)
+                }
+                toastMessage = "截图已保存到相册"
+            } catch {
+                toastMessage = "保存截图失败"
+            }
+        }
+    }
+
     func seek(to seconds: TimeInterval) {
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
@@ -205,6 +272,17 @@ final class PlayerModel {
 
     // MARK: - 剧集
 
+    /// 上一集; 当前是第一集或剧集未加载时为 `nil`.
+    var previousEpisode: AniEpisode? {
+        guard let index = episodes.firstIndex(where: { $0.id == target.episode.id }), index > 0 else { return nil }
+        return episodes[index - 1]
+    }
+
+    func playPreviousEpisode() {
+        guard let previous = previousEpisode else { return }
+        play(episode: previous)
+    }
+
     /// 切换到下一集. `automatic` 表示播放结束时自动触发.
     func playNextEpisode(automatic: Bool = false) {
         guard let next = nextEpisode else { return }
@@ -226,6 +304,9 @@ final class PlayerModel {
     }
 
     func stop() {
+        playerTasks.forEach { $0.cancel() }
+        playerTasks.removeAll()
+        core?.watchTogether.clearWatching()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         timeObserver = nil
         rateObservation = nil
@@ -310,6 +391,8 @@ final class PlayerModel {
         preferences = []
         danmaku = []
         playable = nil
+        videoOutput = nil
+        watchTogetherHoldDone = false
         currentTime = 0
         duration = 0
         nextEpisode = nil
@@ -347,14 +430,20 @@ final class PlayerModel {
                     options: ["AVURLAssetHTTPHeaderFieldsKey": playable.headers],
                 )
                 let item = AVPlayerItem(asset: asset)
+                let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                ])
+                item.add(output)
+                videoOutput = output
+                lastTransferredBytes = 0
                 player.replaceCurrentItem(with: item)
                 self.playable = playable
                 observeEnd(of: item)
                 // 换源后时间轴可能不同, 重新加载跳过片段
                 resetSkipState()
                 if resumeAt > 0 { await player.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600)) }
-                player.play()
                 phase = .playing
+                startPlaybackAfterLoad()
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 phase = .failed(Self.describe(error))
@@ -453,6 +542,93 @@ final class PlayerModel {
         guard settings()?.autoPlayNext == true,
               duration > 0, duration - currentTime < Self.autoNextTolerance else { return }
         playNextEpisode(automatic: true)
+    }
+
+    // MARK: - 一起看
+
+    /// 媒体加载完成后开始播放. 在一起看房间中 (房主或跟随房主) 首次加载后先暂停, 等房主开始播放;
+    /// 跟随者随后同步到房主的位置与状态.
+    private func startPlaybackAfterLoad() {
+        player.defaultRate = playbackRate
+        guard let watchTogether = core?.watchTogether, !watchTogetherHoldDone, watchTogether.isSyncActive() else {
+            player.play()
+            return
+        }
+        watchTogetherHoldDone = true
+        player.pause()
+        if let target = watchTogether.initialTarget() { apply(target) }
+    }
+
+    private func observeWatchTogether(_ watchTogether: AniWatchTogether) {
+        playerTasks.append(Task { [weak self] in
+            for await directive in watchTogether.directiveUpdates {
+                self?.apply(directive)
+            }
+        })
+        playerTasks.append(Task { [weak self] in
+            while !Task.isCancelled {
+                self?.reportWatching(to: watchTogether)
+                self?.sampleNetworkSpeed()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        })
+    }
+
+    /// 应用房主的同步指令: 相差超过 3 秒 (或强制) 时跳转, 然后对齐速度与播放/暂停.
+    private func apply(_ directive: AniPlaybackDirective) {
+        guard directive.subjectId == target.subject.id else { return }
+        if directive.kind == .switchEpisode {
+            guard directive.episodeId != target.episode.id,
+                  let episode = episodes.first(where: { $0.id == directive.episodeId }) else { return }
+            play(episode: episode)
+            return
+        }
+        guard directive.episodeId == target.episode.id, phase == .playing, player.currentItem != nil else { return }
+        let local = player.currentTime().seconds.isFinite ? player.currentTime().seconds : currentTime
+        let targetSeconds = TimeInterval(directive.positionMillis) / 1000
+        var appliedDelta: Int64?
+        if directive.forceSeek || abs(local - targetSeconds) > 3 {
+            seek(to: targetSeconds)
+            appliedDelta = Int64((targetSeconds - local) * 1000)
+        }
+        if abs(directive.playbackRate - playbackRate) > 0.001 { setPlaybackRate(directive.playbackRate) }
+        if directive.paused {
+            if player.timeControlStatus != .paused { player.pause() }
+        } else if player.timeControlStatus == .paused {
+            player.play()
+        }
+        if let appliedDelta, !directive.forceSeek {
+            core?.watchTogether.notifyCorrectionApplied(deltaMillis: appliedDelta)
+        }
+    }
+
+    /// 每秒上报一次本地播放状态; 媒体加载前上报 "加载中", 让房间成员能同时打开这一集.
+    private func reportWatching(to watchTogether: AniWatchTogether) {
+        guard session != nil else { return }
+        let loaded = phase == .playing && player.currentItem != nil
+        let position = loaded && player.currentTime().seconds.isFinite ? player.currentTime().seconds : 0
+        watchTogether.reportWatching(
+            subjectId: target.subject.id,
+            episodeId: target.episode.id,
+            subjectName: target.subject.displayName,
+            episodeSort: target.episode.sort,
+            episodeName: target.episode.displayName,
+            positionMillis: Int64(position * 1000),
+            durationMillis: loaded ? Int64(duration * 1000) : 0,
+            paused: !loaded || player.timeControlStatus == .paused,
+            buffering: loaded && player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+            playbackRate: playbackRate,
+        )
+    }
+
+    private func sampleNetworkSpeed() {
+        guard let events = player.currentItem?.accessLog()?.events else {
+            networkSpeed = 0
+            return
+        }
+        let total = events.reduce(Int64(0)) { $0 + max(0, $1.numberOfBytesTransferred) }
+        networkSpeed = lastTransferredBytes > 0 ? Double(max(0, total - lastTransferredBytes)) : 0
+        lastTransferredBytes = total
     }
 
     private static func describe(_ error: Error) -> String {
