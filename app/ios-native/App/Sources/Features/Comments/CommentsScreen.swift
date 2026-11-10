@@ -110,14 +110,20 @@ struct CommentsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             if model.source.canPost, services.isLoggedIn {
-                composer
+                CommentComposer(model: model)
             }
         }
         .task { await model.reload(core: services.core) }
         .refreshable { await model.reload(core: services.core) }
     }
+}
 
-    private var composer: some View {
+/// 发表评论的输入框. 登录后显示在评论列表底部.
+struct CommentComposer: View {
+    @Bindable var model: CommentsModel
+    @Environment(AppServices.self) private var services
+
+    var body: some View {
         HStack(spacing: 8) {
             TextField("发表评论", text: $model.draft, axis: .vertical)
                 .lineLimit(1...4)
@@ -142,7 +148,7 @@ struct CommentsScreen: View {
     }
 }
 
-private struct CommentRow: View {
+struct CommentRow: View {
     let comment: AniComment
 
     var body: some View {

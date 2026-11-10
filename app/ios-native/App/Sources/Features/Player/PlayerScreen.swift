@@ -42,6 +42,18 @@ struct PlayerScreen: View {
             )
             .ignoresSafeArea()
 
+            // 点按画面空白处显示或隐藏控件, 双击播放/暂停; 手势放在控件之下, 不与按钮争夺触摸
+            Color.clear
+                .contentShape(.rect)
+                .onTapGesture(count: 2) {
+                    guard !isLocked, model.phase == .playing else { return }
+                    model.togglePlayback()
+                }
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+                    if controlsVisible { scheduleHideControls() }
+                }
+
             PlayerStatusView(phase: model.phase, progress: model.progress, selected: model.selected) {
                 showsSourcePicker = true
             }
@@ -68,15 +80,6 @@ struct PlayerScreen: View {
                 .environment(\.colorScheme, .dark)
                 .transition(.opacity)
             }
-        }
-        .contentShape(.rect)
-        .onTapGesture(count: 2) {
-            guard !isLocked, model.phase == .playing else { return }
-            model.togglePlayback()
-        }
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
-            if controlsVisible { scheduleHideControls() }
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)

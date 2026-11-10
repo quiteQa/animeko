@@ -44,7 +44,7 @@ struct PlayerControls: View {
                             iconButton("camera", label: "截图") { model.saveScreenshot() }
                             lockToggle
                         }
-                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .glassEffect(.regular, in: .capsule)
                         Spacer()
                         speedControl
                     }
@@ -69,7 +69,7 @@ struct PlayerControls: View {
                 }
                 iconButton("iphone", label: "切换到竖屏", action: onExitFullscreen)
             }
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .glassEffect(.regular, in: .capsule)
 
             Spacer()
 
@@ -85,7 +85,7 @@ struct PlayerControls: View {
                 }
                 .accessibilityLabel("选集")
             }
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .glassEffect(.regular, in: .capsule)
         }
     }
 
@@ -98,7 +98,7 @@ struct PlayerControls: View {
     }
 
     private var lockButton: some View {
-        lockToggle.glassEffect(.regular.interactive(), in: .capsule)
+        lockToggle.glassEffect(.regular, in: .capsule)
     }
 
     private var speedControl: some View {
@@ -118,7 +118,7 @@ struct PlayerControls: View {
             iconButton("minus", label: "减速") { model.stepPlaybackRate(-1) }
                 .disabled(model.playbackRate <= PlayerModel.rateSteps.first ?? 0.5)
         }
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .glassEffect(.regular, in: .capsule)
     }
 
     private func iconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {

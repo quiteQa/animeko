@@ -3,7 +3,9 @@ import AVKit
 import Combine
 import SwiftUI
 
-/// 播放页. 自上而下: 视频, 标题, 播放源, 弹幕源, 剧集列表, 相关推荐.
+/// 播放页. 自上而下: 视频, 标题, 播放源, 弹幕源, 评论 (折叠), 剧集列表, 相关推荐.
+///
+/// 评论展开后占据弹幕源以下的全部空间, 单独滚动, 底部显示评论框; 剧集列表与相关推荐在收起评论后显示.
 ///
 /// 视频固定在顶部, 其余内容在下方滚动. 页面持有 `PlayerModel` 与播放会话; 全屏是叠在页面之上的同一个 `AVPlayer`
 /// 的另一个视图, 与界面旋转一起淡入淡出, 退出全屏后回到这里继续播放. 离开页面 (返回) 时结束播放.
@@ -17,7 +19,9 @@ struct EpisodePlayerPage: View {
     @State private var showsFullscreen = false
     @State private var showsSourcePicker = false
     @State private var showsDanmakuSources = false
-    @State private var showsComments = false
+    /// 本集评论; 切换剧集时重新创建.
+    @State private var comments: CommentsModel?
+    @State private var commentsExpanded = false
 
     init(target: PlaybackTarget) {
         _model = State(initialValue: PlayerModel(target: target))
@@ -33,32 +37,28 @@ struct EpisodePlayerPage: View {
                 onBack: { dismiss() },
                 onFullscreen: enterFullscreen,
                 onShowSources: { showsSourcePicker = true },
-                onShowComments: { showsComments = true },
             )
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    TitleSection(model: model, subject: subject, info: currentSubject)
-                    VStack(spacing: 10) {
-                        SourceRow(model: model) { showsSourcePicker = true }
-                        DanmakuRow(model: model) { showsDanmakuSources = true }
+            if commentsExpanded, let comments {
+                // 评论展开: 上方信息固定, 评论列表占满其余高度并单独滚动, 底部是评论框
+                details
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
+                    .padding(.bottom, 10)
+                EpisodeCommentList(model: comments)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        details
+                        episodesAndRelated
                     }
-                    EpisodeListSection(
-                        model: model,
-                        subject: currentSubject,
-                        episodes: subject.detail?.episodes ?? [],
-                        canEditWatched: services.isLoggedIn,
-                        onSetWatched: setWatched,
-                    )
-                    if !recommendations.isEmpty {
-                        RelatedSection(items: recommendations)
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
+                    .padding(.bottom, 40)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 18)
-                .padding(.bottom, 40)
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
         .background(Color(.systemGroupedBackground))
         .toolbar(.hidden, for: .navigationBar)
@@ -83,12 +83,6 @@ struct EpisodePlayerPage: View {
         .sheet(isPresented: $showsDanmakuSources) {
             DanmakuSourcesSheet(model: model)
                 .presentationDetents([.medium])
-        }
-        .sheet(isPresented: $showsComments) {
-            NavigationStack {
-                CommentsScreen(source: .episode(model.target.episode.id), title: "评论")
-            }
-            .presentationDetents([.medium, .large])
         }
         .overlay(alignment: .top) {
             if let message = model.toastMessage, !showsFullscreen {
@@ -117,6 +111,11 @@ struct EpisodePlayerPage: View {
             model.start(core: services.core, settings: { services.settings })
         }
         .task { await subject.observe(subjectId: model.target.subject.id, core: services.core) }
+        .task(id: model.target.episode.id) {
+            let episodeComments = CommentsModel(source: .episode(model.target.episode.id))
+            comments = episodeComments
+            await episodeComments.reload(core: services.core)
+        }
         .onChange(of: subject.detail, initial: true) {
             model.episodes = subject.detail?.episodes ?? []
         }
@@ -147,6 +146,34 @@ struct EpisodePlayerPage: View {
         }
     }
 
+    /// 标题, 播放源, 弹幕源与评论入口.
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            TitleSection(model: model, subject: subject, info: currentSubject)
+            VStack(spacing: 10) {
+                SourceRow(model: model) { showsSourcePicker = true }
+                DanmakuRow(model: model) { showsDanmakuSources = true }
+                CommentsRow(model: comments, isExpanded: commentsExpanded) {
+                    withAnimation(.smooth(duration: 0.35)) { commentsExpanded.toggle() }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var episodesAndRelated: some View {
+        EpisodeListSection(
+            model: model,
+            subject: currentSubject,
+            episodes: subject.detail?.episodes ?? [],
+            canEditWatched: services.isLoggedIn,
+            onSetWatched: setWatched,
+        )
+        if !recommendations.isEmpty {
+            RelatedSection(items: recommendations)
+        }
+    }
+
     private func setWatched(_ episode: AniEpisode, _ watched: Bool) {
         Task {
             await subject.setWatched(watched, episode: episode, subjectId: model.target.subject.id, core: services.core)
@@ -158,7 +185,8 @@ struct EpisodePlayerPage: View {
 
 /// 页面顶部的 16:9 视频. 点按显示或隐藏控件.
 ///
-/// 左上角返回; 右上角是画质增强与更多选项; 中间播放/暂停; 底部进度, 弹幕开关与全屏.
+/// 左上角返回; 右上角是更多选项; 中间播放/暂停; 底部进度, 弹幕开关与全屏.
+/// 点按画面空白处显示或隐藏控件; 点按手势放在控件之下, 不与按钮争夺触摸.
 /// 控件隐藏时底部保留一条细进度线.
 private struct InlinePlayer: View {
     @Bindable var model: PlayerModel
@@ -167,7 +195,6 @@ private struct InlinePlayer: View {
     let onBack: () -> Void
     let onFullscreen: () -> Void
     let onShowSources: () -> Void
-    let onShowComments: () -> Void
 
     @Environment(AppServices.self) private var services
     @State private var controlsVisible = true
@@ -188,6 +215,12 @@ private struct InlinePlayer: View {
                 showsColor: services.settings?.danmakuShowColor ?? true,
                 currentTime: { [model] in model.playbackTime() },
             )
+            Color.clear
+                .contentShape(.rect)
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+                    if controlsVisible { scheduleHide() }
+                }
             status
             if controlsVisible {
                 controls.transition(.opacity)
@@ -207,11 +240,6 @@ private struct InlinePlayer: View {
         .clipped()
         .background(Color.black.ignoresSafeArea(edges: .top))
         .environment(\.colorScheme, .dark)
-        .contentShape(.rect)
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
-            if controlsVisible { scheduleHide() }
-        }
         .onChange(of: model.isPlaying) { _, playing in
             if playing { scheduleHide() }
         }
@@ -280,22 +308,22 @@ private struct InlinePlayer: View {
                         Image(systemName: "chevron.backward")
                             .font(.subheadline.weight(.semibold))
                             .frame(width: 34, height: 34)
+                            .contentShape(.circle)
                     }
-                    .glassEffect(.regular.interactive(), in: .circle)
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: .circle)
                     .accessibilityLabel("返回")
 
                     Spacer()
 
-                    enhancementMenu
-
-                    PlayerMoreMenu(model: model, onShowComments: onShowComments) {
+                    PlayerMoreMenu(model: model) {
                         Image(systemName: "ellipsis")
                             .font(.subheadline.weight(.semibold))
                             .frame(width: 34, height: 34)
-                            .glassEffect(.regular.interactive(), in: .circle)
+                            .contentShape(.circle)
+                            .glassEffect(.regular, in: .circle)
                     }
                 }
-                .buttonStyle(.plain)
             }
 
             Spacer()
@@ -309,9 +337,10 @@ private struct InlinePlayer: View {
                         .font(.title2)
                         .contentTransition(.symbolEffect(.replace))
                         .frame(width: 56, height: 56)
+                        .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .glassEffect(.regular, in: .circle)
                 .accessibilityLabel(model.isPlaying ? "暂停" : "播放")
             }
 
@@ -368,30 +397,6 @@ private struct InlinePlayer: View {
             )
             .allowsHitTesting(false)
         }
-    }
-
-    /// 右上角的画质增强: 开启时为黄色; 点按选择档位.
-    private var enhancementMenu: some View {
-        let isOn = model.enhancementMode != .off
-        return Menu {
-            Picker("画质增强", selection: $model.enhancementMode) {
-                ForEach(VideoEnhancementMode.menuOrder) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "sparkles")
-                Text("画质增强")
-            }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(isOn ? Color.yellow : Color.white)
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .glassEffect(.regular.interactive(), in: .capsule)
-        }
-        .accessibilityLabel("画质增强")
-        .accessibilityValue(model.enhancementMode.title)
     }
 
     private func iconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
@@ -1001,5 +1006,109 @@ private struct RelatedSection: View {
         }
         .frame(width: 108, alignment: .leading)
         .contentShape(.rect)
+    }
+}
+
+// MARK: - 评论
+
+/// 评论入口: 收起时显示最新一条评论的摘要, 点按展开; 展开时点按收起.
+private struct CommentsRow: View {
+    let model: CommentsModel?
+    let isExpanded: Bool
+    let action: () -> Void
+
+    var body: some View {
+        SelectorRow(caption: caption, title: title, action: action) {
+            Circle()
+                .fill(Color.accentColor.opacity(0.12))
+                .overlay {
+                    Image(systemName: "text.bubble")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.tint)
+                }
+        } trailing: {
+            Image(systemName: "chevron.down")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+        }
+        .accessibilityHint(isExpanded ? "收起评论" : "展开评论")
+    }
+
+    private var caption: String {
+        guard let model, !model.items.isEmpty else { return "评论" }
+        return model.reachedEnd ? "评论 · \(model.items.count) 条" : "评论 · \(model.items.count)+ 条"
+    }
+
+    private var title: String {
+        if isExpanded { return "收起评论" }
+        guard let model else { return "加载中" }
+        if let first = model.items.first {
+            let name = first.authorName.isEmpty ? "匿名" : first.authorName
+            return "\(name): \(first.text.replacingOccurrences(of: "\n", with: " "))"
+        }
+        if model.isLoading { return "加载中" }
+        return model.errorMessage == nil ? "还没有评论, 来说两句" : "评论加载失败, 点按重试"
+    }
+}
+
+/// 展开后的评论列表: 占满剩余高度, 滚动到底部时加载更多; 底部是评论框 (未登录时提示登录).
+private struct EpisodeCommentList: View {
+    let model: CommentsModel
+    @Environment(AppServices.self) private var services
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(model.items, id: \.id) { comment in
+                    CommentRow(comment: comment)
+                        .padding(.vertical, 12)
+                        .onAppear {
+                            if comment.id == model.items.last?.id {
+                                Task { await model.loadMore(core: services.core) }
+                            }
+                        }
+                    Divider()
+                }
+                if model.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                }
+                if let message = model.errorMessage {
+                    Button {
+                        Task { await model.reload(core: services.core) }
+                    } label: {
+                        Label("\(message) · 点按重试", systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 16)
+                }
+                if model.items.isEmpty, !model.isLoading, model.errorMessage == nil {
+                    ContentUnavailableView("还没有评论", systemImage: "text.bubble", description: Text("来发表第一条评论吧"))
+                        .padding(.top, 24)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .scrollIndicators(.automatic)
+        .scrollDismissesKeyboard(.interactively)
+        .refreshable { await model.reload(core: services.core) }
+        .safeAreaInset(edge: .bottom) {
+            if services.isLoggedIn {
+                CommentComposer(model: model)
+                    .padding(.top, -8)
+                    .background(.bar)
+            } else {
+                Label("登录后可以发表评论", systemImage: "person.crop.circle.badge.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(.bar)
+            }
+        }
     }
 }
