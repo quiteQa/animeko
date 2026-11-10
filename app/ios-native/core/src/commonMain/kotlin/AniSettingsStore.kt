@@ -40,8 +40,9 @@ class AniSettingsStore internal constructor(
     private val regexFilters: DanmakuRegexFilterRepository = koin.get()
     private val mediaSourceManager: MediaSourceManager = koin.get()
 
-    fun observeSettings(listener: AniSettingsListener): AniSubscription =
-        scope.launchObserver(callbackContext, settingsFlow()) { listener.onSettings(it) }
+    /** 设置. 任何一项修改后发出新值. */
+    val settingsUpdates: Flow<AniSettings>
+        get() = settingsFlow().forSwift()
 
     private fun settingsFlow(): Flow<AniSettings> = combine(
         settings.mediaSelectorSettings.flow,
@@ -152,10 +153,11 @@ class AniSettingsStore internal constructor(
         settings.danmakuConfig.update { copy(textConversion = value) }
     }
 
-    fun observeDanmakuFilters(listener: AniDanmakuFiltersListener): AniSubscription = scope.launchObserver(
-        callbackContext,
-        regexFilters.flow.map { list -> list.map { AniDanmakuFilter(it.id, it.name, it.regex, it.enabled) } },
-    ) { listener.onFilters(it) }
+    /** 正则屏蔽词. */
+    val danmakuFilterUpdates: Flow<List<AniDanmakuFilter>>
+        get() = regexFilters.flow
+            .map { list -> list.map { AniDanmakuFilter(it.id, it.name, it.regex, it.enabled) } }
+            .forSwift()
 
     /**
      * 添加正则屏蔽词.
@@ -188,9 +190,9 @@ class AniSettingsStore internal constructor(
 
     // region 数据源
 
-    fun observeMediaSources(listener: AniMediaSourcesListener): AniSubscription = scope.launchObserver(
-        callbackContext,
-        mediaSourceManager.allInstances.map { list ->
+    /** 所有数据源及其启用状态. */
+    val mediaSourceUpdates: Flow<List<AniMediaSourceItem>>
+        get() = mediaSourceManager.allInstances.map { list ->
             list.map {
                 AniMediaSourceItem(
                     instanceId = it.instanceId,
@@ -200,8 +202,7 @@ class AniSettingsStore internal constructor(
                     enabled = it.isEnabled,
                 )
             }
-        },
-    ) { listener.onMediaSources(it) }
+        }.forSwift()
 
     @Throws(Exception::class)
     suspend fun setMediaSourceEnabled(instanceId: String, enabled: Boolean) {
@@ -210,16 +211,4 @@ class AniSettingsStore internal constructor(
 
     // endregion
 
-}
-
-interface AniSettingsListener {
-    fun onSettings(settings: AniSettings)
-}
-
-interface AniDanmakuFiltersListener {
-    fun onFilters(filters: List<AniDanmakuFilter>)
-}
-
-interface AniMediaSourcesListener {
-    fun onMediaSources(sources: List<AniMediaSourceItem>)
 }

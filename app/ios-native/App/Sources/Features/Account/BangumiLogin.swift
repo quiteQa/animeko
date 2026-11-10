@@ -18,14 +18,16 @@ final class BangumiLoginModel {
         isRunning = true
         errorMessage = nil
         task = Task {
-            let result = await core.loginWithBangumi { [weak self] url in
-                self?.authorizationURL = url
+            // 序列在登录结束时完成; 任务被取消 (关闭授权页) 时提前结束, 不提示错误
+            for await event in core.bangumiLogin() {
+                if let url = event.openUrl.flatMap(URL.init(string:)) {
+                    authorizationURL = url
+                } else if event.finished, !event.success {
+                    errorMessage = Self.describe(event.error)
+                }
             }
             isRunning = false
             authorizationURL = nil
-            if case .failure(let error) = result, error.reason != "Cancelled" {
-                errorMessage = Self.describe(error.reason)
-            }
         }
     }
 

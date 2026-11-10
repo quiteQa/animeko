@@ -25,9 +25,10 @@ final class WatchTogetherModel {
             }
             group.addTask { @MainActor in
                 for await event in core.watchTogether.eventUpdates {
-                    switch event {
-                    case .navigate(let navigation): self.pendingNavigation = navigation
-                    case .message(let text): self.message = text
+                    if let navigation = event.navigation {
+                        self.pendingNavigation = navigation
+                    } else if let text = event.message {
+                        self.message = text
                     }
                 }
             }

@@ -15,9 +15,10 @@ final class CollectionModel {
     func observe(core: AniCore) async {
         items = []
         for await update in core.collectionUpdates(type: type, limit: Self.limit) {
-            switch update {
-            case .value(let list): items = list
-            case .failure(let message): errorMessage = message
+            if let list = update.items {
+                items = list
+            } else {
+                errorMessage = update.error
             }
         }
     }

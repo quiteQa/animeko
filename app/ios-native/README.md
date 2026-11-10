@@ -15,7 +15,7 @@ app/ios-native/
     ├── project.yml
     ├── Podfile
     ├── Sources/
-    │   ├── Core/          AniCore 的 Swift 适配 (observe* → AsyncStream)
+    │   ├── Core/          SKIE 未覆盖的少量 Swift 工具
     │   ├── Common/        跨页面的文案与格式
     │   └── Features/      Collection, Explore, Search, Subject, Player, Danmaku,
     │                      Comments, Downloads, Settings, Account
@@ -38,8 +38,9 @@ SwiftUI 视图 ── @Observable 模型 ── AVPlayer / 弹幕 CALayer      (
 
 - Swift 只调用 `AniCore` 与 `AniEpisodeSession`. 它们只暴露 `Ani*` 值类型 (String / Int / Long / List / Map),
   不暴露任何 app-data 类型; 上游数据模型变动时只需改 `core/src/commonMain/kotlin/Mappers.kt`.
-- `suspend` 函数在 Swift 中是 `async throws`. `Flow` 不直接跨边界: facade 提供 `observe*(listener)`,
-  回调在主线程触发, Swift 侧用 `AsyncStream` 包装 (`Sources/Core/CoreBridge.swift`).
+- 桥接由 [SKIE](https://skie.touchlab.co/) 生成: `suspend` 函数在 Swift 中是 `async throws`, facade 中返回 `Flow` 的
+  `*Updates` 在 Swift 中可以 `for await`, 取消所在的 Task 即停止收集. SKIE 的序列不抛出错误, 需要报错的 Flow
+  (条目详情, 收藏, 时间表) 发出带 `error` 字段的值. SKIE 只在构建 iOS framework 时应用, 版本须支持当前的 Kotlin 版本.
 - 界面状态全部归 Swift `@Observable`. Kotlin 只负责查询, 选择与解析, 不持有屏幕状态.
 - Swift 持有 `AVPlayer`. `AniEpisodeSession.resolveSelected()` 返回可播放 URL, 请求头与外挂字幕, Swift 用它创建
   `AVURLAsset`. 播放进度从不跨边界.

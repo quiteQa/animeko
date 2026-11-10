@@ -10,6 +10,7 @@
 package me.him188.ani.app.iosnative.core
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import me.him188.ani.app.domain.media.download.DownloadOperation
 import me.him188.ani.app.domain.media.download.DownloadOperations
@@ -32,12 +33,10 @@ class AniDownloads internal constructor(
     private val operations: DownloadOperations = koin.get()
 
     /**
-     * 观察所有缓存. [subjectId] 为 0 时包含所有条目.
+     * 缓存列表. [subjectId] 为 0 时包含所有条目.
      */
-    fun observeDownloads(subjectId: Int, listener: AniDownloadsListener): AniSubscription = scope.launchObserver(
-        callbackContext,
-        manager.snapshots(subjectId.takeIf { it != 0 }).map { list -> list.map { it.toAniDownload() } },
-    ) { listener.onDownloads(it) }
+    fun downloadUpdates(subjectId: Int): Flow<List<AniDownload>> =
+        manager.snapshots(subjectId.takeIf { it != 0 }).map { list -> list.map { it.toAniDownload() } }.forSwift()
 
     fun pause(ids: List<String>) {
         operations.submit(ids.toSet(), DownloadOperation.Pause)
@@ -67,7 +66,3 @@ internal fun DownloadSnapshot.toAniDownload(): AniDownload = AniDownload(
     canPlay = canPlay,
     busy = isBusy,
 )
-
-interface AniDownloadsListener {
-    fun onDownloads(downloads: List<AniDownload>)
-}

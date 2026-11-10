@@ -16,9 +16,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.mapNotNull
 import me.him188.ani.app.data.network.WatchTogetherJoinException
 import me.him188.ani.app.data.network.WatchTogetherJoinFailure
 import me.him188.ani.app.data.repository.user.SettingsRepository
@@ -46,7 +46,7 @@ import kotlin.math.roundToLong
  * 一起看. 房间状态与成员来自上游 `WatchTogetherManager`; 播放器通过本类上报本地播放状态, 并接收与房主同步的指令.
  *
  * 播放页在播放期间约每秒调用一次 [reportWatching], 离开时调用 [clearWatching]. 房主或跟随房主的成员会收到
- * [observeDirectives] 的同步指令, 指令中的位置已按服务器时间推算到回调时刻.
+ * [directiveUpdates] 的同步指令, 指令中的位置已按服务器时间推算到回调时刻.
  */
 class AniWatchTogether internal constructor(
     private val koin: Koin,
@@ -57,12 +57,10 @@ class AniWatchTogether internal constructor(
     private val bridge: LocalPlaybackBridge by lazy { koin.get() }
     private val settingsRepository: SettingsRepository by lazy { koin.get() }
 
-    /** 观察房间状态. 状态, 成员, 连接或跟随状态变化时回调. */
+    /** 房间状态. 状态, 成员, 连接或跟随状态变化时发出新值. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeRoom(listener: AniWatchTogetherRoomListener): AniSubscription = scope.launchObserver(
-        callbackContext,
-        manager.state.flatMapLatest { state -> roomFlow(state) },
-    ) { listener.onRoom(it) }
+    val roomUpdates: Flow<AniWatchTogetherRoom>
+        get() = manager.state.flatMapLatest { state -> roomFlow(state) }.forSwift()
 
     private fun roomFlow(state: WatchTogetherState): Flow<AniWatchTogetherRoom> = when (state) {
         WatchTogetherState.Disabled -> flowOf(AniWatchTogetherRoom.inactive(AniWatchTogetherStatus.DISABLED))
@@ -78,52 +76,41 @@ class AniWatchTogether internal constructor(
         }
     }
 
-    /** 观察需要提示用户的事件: 房主切换到其他条目, 房间结束, 重连结果等. */
-    fun observeEvents(listener: AniWatchTogetherEventListener): AniSubscription {
-        val job = scope.launch {
-            manager.effects.collect { effect ->
-                withContext(callbackContext) {
-                    when (effect) {
-                        is WatchTogetherEffect.Navigate -> effect.toAniNavigation()?.let { listener.onNavigate(it) }
-                        is WatchTogetherEffect.RoomEnded -> listener.onMessage(
-                            when (effect.reason) {
-                                WatchTogetherRoomEndReason.ROOM_CLOSED -> "房间已关闭"
-                                WatchTogetherRoomEndReason.SESSION_REPLACED -> "你已在其他设备加入房间"
-                            },
-                        )
+    /** 需要提示用户的事件: 房主切换到其他条目, 房间结束, 重连结果等. */
+    val eventUpdates: Flow<AniWatchTogetherEvent>
+        get() = manager.effects.mapNotNull { effect ->
+            when (effect) {
+                is WatchTogetherEffect.Navigate -> effect.toAniNavigation()?.let { AniWatchTogetherEvent(it, null) }
+                is WatchTogetherEffect.RoomEnded -> AniWatchTogetherEvent.message(
+                    when (effect.reason) {
+                        WatchTogetherRoomEndReason.ROOM_CLOSED -> "房间已关闭"
+                        WatchTogetherRoomEndReason.SESSION_REPLACED -> "你已在其他设备加入房间"
+                    },
+                )
 
-                        WatchTogetherEffect.Rejoined -> listener.onMessage("已重新加入房间")
-                        WatchTogetherEffect.RejoinFailed -> listener.onMessage("重新加入房间失败")
-                        is WatchTogetherEffect.ResyncedWithHost -> listener.onMessage(resyncMessage(effect.deltaMillis))
-                    }
-                }
+                WatchTogetherEffect.Rejoined -> AniWatchTogetherEvent.message("已重新加入房间")
+                WatchTogetherEffect.RejoinFailed -> AniWatchTogetherEvent.message("重新加入房间失败")
+                is WatchTogetherEffect.ResyncedWithHost -> AniWatchTogetherEvent.message(resyncMessage(effect.deltaMillis))
             }
-        }
-        return AniSubscription(job)
-    }
+        }.catch { }
 
     /**
-     * 观察发给播放器的同步指令. 房主缓冲时等待 2 秒确认仍在缓冲再下发, 避免短暂卡顿让所有人跟着暂停.
+     * 发给播放器的同步指令. 房主缓冲时等待 2 秒确认仍在缓冲再下发, 避免短暂卡顿让所有人跟着暂停.
      */
-    fun observeDirectives(listener: AniWatchTogetherDirectiveListener): AniSubscription {
-        val job = scope.launch {
-            bridge.directives.collect { directive ->
-                val result = when (directive) {
-                    is PlaybackDirective.Sync -> settle(directive.playback)?.let {
-                        it.toDirective(AniPlaybackDirectiveKind.SYNC, it.info.episodeId, forceSeek = directive.initial)
-                    }
-
-                    is PlaybackDirective.SwitchEpisode -> directive.playback.toDirective(
-                        AniPlaybackDirectiveKind.SWITCH_EPISODE,
-                        directive.episodeId,
-                        forceSeek = true,
-                    )
+    val directiveUpdates: Flow<AniPlaybackDirective>
+        get() = bridge.directives.mapNotNull { directive ->
+            when (directive) {
+                is PlaybackDirective.Sync -> settle(directive.playback)?.let {
+                    it.toDirective(AniPlaybackDirectiveKind.SYNC, it.info.episodeId, forceSeek = directive.initial)
                 }
-                if (result != null) withContext(callbackContext) { listener.onDirective(result) }
+
+                is PlaybackDirective.SwitchEpisode -> directive.playback.toDirective(
+                    AniPlaybackDirectiveKind.SWITCH_EPISODE,
+                    directive.episodeId,
+                    forceSeek = true,
+                )
             }
-        }
-        return AniSubscription(job)
-    }
+        }.catch { }
 
     private suspend fun settle(playback: AniWatchTogetherPlayback): AniWatchTogetherPlayback? {
         val host = playback.info
@@ -410,15 +397,9 @@ data class AniPlaybackDirective(
     val forceSeek: Boolean,
 )
 
-interface AniWatchTogetherRoomListener {
-    fun onRoom(room: AniWatchTogetherRoom)
-}
-
-interface AniWatchTogetherEventListener {
-    fun onNavigate(navigation: AniWatchTogetherNavigation)
-    fun onMessage(message: String)
-}
-
-interface AniWatchTogetherDirectiveListener {
-    fun onDirective(directive: AniPlaybackDirective)
+/** 一起看的提示事件: [navigation] 与 [message] 恰有一个非空. */
+data class AniWatchTogetherEvent(val navigation: AniWatchTogetherNavigation?, val message: String?) {
+    internal companion object {
+        fun message(text: String) = AniWatchTogetherEvent(null, text)
+    }
 }

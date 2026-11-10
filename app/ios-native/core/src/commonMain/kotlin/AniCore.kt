@@ -10,15 +10,12 @@
 package me.him188.ani.app.iosnative.core
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
 import me.him188.ani.app.data.network.AniApiProvider
@@ -42,13 +39,12 @@ import me.him188.ani.app.domain.session.auth.OAuthConfigurator
 import org.koin.core.Koin
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Clock
-import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * SwiftUI 客户端访问 Animeko 数据层的唯一入口.
  *
- * Swift 只调用本类与 [AniEpisodeSession] 的公开方法, 不直接接触 app-data. 所有 `suspend` 方法在 Swift 中是 `async throws`;
- * 所有 `observe*` 方法的回调在 [callbackContext] (iOS 上为主线程) 上触发, 返回的 [AniSubscription] 用于取消.
+ * Swift 只调用本类与 [AniEpisodeSession] 的公开方法, 不直接接触 app-data. 桥接由 SKIE 完成: `suspend` 方法在 Swift 中是
+ * `async throws`, 返回 `Flow` 的 `*Updates` 在 Swift 中可以 `for await`, 取消所在的 Task 即停止收集.
  *
  * 实例由平台入口创建 (iOS: `AniCoreStarterKt.startAniCore()`), 整个进程只有一个.
  */
@@ -93,14 +89,13 @@ class AniCore internal constructor(
     }
 
     /**
-     * 观察条目详情. 修改收藏或剧集观看状态后会再次回调.
+     * 条目详情. 修改收藏或剧集观看状态后会再次发出. 失败时发出一个带 [AniSubjectDetailUpdate.error] 的值后结束.
      */
-    fun observeSubjectDetail(subjectId: Int, listener: AniSubjectDetailListener): AniSubscription =
-        scope.launchObserver(
-            callbackContext,
-            subjectCollectionRepository.subjectCollectionFlow(subjectId).map { it.toAniSubjectDetail() },
-            onError = { listener.onError(it.message ?: it.toString()) },
-        ) { listener.onDetail(it) }
+    fun subjectDetailUpdates(subjectId: Int): Flow<AniSubjectDetailUpdate> =
+        subjectCollectionRepository.subjectCollectionFlow(subjectId).forSwift(
+            onValue = { AniSubjectDetailUpdate(it.toAniSubjectDetail(), null) },
+            onError = { AniSubjectDetailUpdate(null, it) },
+        )
 
     /**
      * 修改条目收藏状态. [AniCollectionType.NOT_COLLECTED] 表示取消收藏. 需要登录.
@@ -126,16 +121,15 @@ class AniCore internal constructor(
     // region 收藏
 
     /**
-     * 观察本地缓存中最近更新的收藏. [type] 为 `null` 时包含所有类型. 用 [refreshCollections] 从服务器更新缓存.
+     * 本地缓存中最近更新的收藏. [type] 为 `null` 时包含所有类型. 用 [refreshCollections] 从服务器更新缓存.
      */
-    fun observeCollections(type: AniCollectionType?, limit: Int, listener: AniCollectionsListener): AniSubscription =
-        scope.launchObserver(
-            callbackContext,
-            subjectCollectionRepository
-                .mostRecentlyUpdatedSubjectCollectionsFlow(limit, types = type?.let { listOf(it.toUnified()) })
-                .map { list -> list.map { it.toAniCollectionItem() } },
-            onError = { listener.onError(it.message ?: it.toString()) },
-        ) { listener.onCollections(it) }
+    fun collectionUpdates(type: AniCollectionType?, limit: Int): Flow<AniCollectionsUpdate> =
+        subjectCollectionRepository
+            .mostRecentlyUpdatedSubjectCollectionsFlow(limit, types = type?.let { listOf(it.toUnified()) })
+            .forSwift(
+                onValue = { list -> AniCollectionsUpdate(list.map { it.toAniCollectionItem() }, null) },
+                onError = { AniCollectionsUpdate(null, it) },
+            )
 
     /**
      * 从服务器拉取最近更新的收藏到本地缓存. 需要登录并绑定 Bangumi.
@@ -150,61 +144,40 @@ class AniCore internal constructor(
     // region 账号
 
     /**
-     * 观察登录状态. 启动后若需要刷新 token, 首次回调会在刷新完成后到达.
+     * 登录状态. 启动后若需要刷新 token, 第一个值在刷新完成后到达.
      */
-    fun observeSession(listener: AniSessionListener): AniSubscription = scope.launchObserver(
-        callbackContext,
-        combine(sessionStateProvider.stateFlow, userRepository.selfInfoFlow) { state, self ->
+    val sessionUpdates: Flow<AniSession>
+        get() = combine(sessionStateProvider.stateFlow, userRepository.selfInfoFlow) { state, self ->
             AniSession(
                 loggedIn = state is SessionState.Valid,
                 bangumiConnected = (state as? SessionState.Valid)?.bangumiConnected == true,
                 nickname = self?.nickname.orEmpty(),
                 avatarUrl = self?.avatarUrl.orEmpty(),
             )
-        },
-    ) { listener.onSession(it) }
+        }.forSwift()
 
     /**
      * 使用 Bangumi 授权登录. 未登录时会注册或登录 Ani 账号, 已登录时为当前账号绑定 Bangumi.
      *
-     * 流程: [AniLoginListener.onOpenUrl] 要求打开授权页 (Swift 用 `ASWebAuthenticationSession` 或系统浏览器),
-     * 用户在网页完成授权后, 本方法轮询到结果并回调 [AniLoginListener.onFinished]. 取消返回的订阅即放弃登录.
+     * 先发出带 [AniLoginEvent.openUrl] 的事件要求打开授权页; 用户在网页完成授权后, 轮询到结果并发出
+     * [AniLoginEvent.finished] 为 `true` 的事件后结束. 停止收集即放弃登录.
      */
-    @OptIn(DelicateCoroutinesApi::class)
-    fun startBangumiLogin(listener: AniLoginListener): AniSubscription {
-        // ATOMIC: 即使立即取消, 也会进入函数体并通过 onFinished 报告取消
-        val job: Job = scope.launch(start = CoroutineStart.ATOMIC) {
-            val configurator = OAuthConfigurator(
-                client = BangumiOAuthClient(koin.get<AniApiProvider>().bangumiApi, sessionStateProvider),
-                sessionManager = sessionManager,
-                sessionStateProvider = sessionStateProvider,
-            )
-            val result = try {
-                val isRegister = sessionStateProvider.stateFlow.first() !is SessionState.Valid
-                configurator.auth(isRegister) { url ->
-                    withContext(callbackContext) { listener.onOpenUrl(url) }
-                }
-            } catch (e: CancellationException) {
-                // 取消时也要通知, 否则 Swift 侧的等待永远不会结束
-                withContext(NonCancellable + callbackContext) {
-                    listener.onFinished(success = false, errorMessage = "Cancelled")
-                }
-                throw e
-            }
-            withContext(callbackContext) {
-                when (result) {
-                    is OAuthConfigurator.State.Success -> listener.onFinished(success = true, errorMessage = null)
-                    is OAuthConfigurator.State.Failed -> listener.onFinished(
-                        success = false,
-                        errorMessage = result.error::class.simpleName,
-                    )
-
-                    else -> listener.onFinished(success = false, errorMessage = null)
-                }
-            }
-        }
-        return AniSubscription(job)
-    }
+    fun bangumiLogin(): Flow<AniLoginEvent> = channelFlow {
+        val configurator = OAuthConfigurator(
+            client = BangumiOAuthClient(koin.get<AniApiProvider>().bangumiApi, sessionStateProvider),
+            sessionManager = sessionManager,
+            sessionStateProvider = sessionStateProvider,
+        )
+        val isRegister = sessionStateProvider.stateFlow.first() !is SessionState.Valid
+        val result = configurator.auth(isRegister) { url -> send(AniLoginEvent.openUrl(url)) }
+        send(
+            when (result) {
+                is OAuthConfigurator.State.Success -> AniLoginEvent.finished(success = true, error = null)
+                is OAuthConfigurator.State.Failed -> AniLoginEvent.finished(false, result.error::class.simpleName)
+                else -> AniLoginEvent.finished(success = false, error = null)
+            },
+        )
+    }.catch { emit(AniLoginEvent.finished(false, it::class.simpleName)) }
 
     /**
      * 退出登录, 清除本地账号信息.
@@ -235,16 +208,15 @@ class AniCore internal constructor(
     }
 
     /**
-     * 观察以今天为中心前后 7 天的放送时间表 (用户所在时区). 跨过午夜后不会自动刷新, 需要重新订阅.
+     * 以今天为中心前后 7 天的放送时间表 (用户所在时区). 跨过午夜后不会自动刷新, 需要重新收集.
      */
-    fun observeSchedule(listener: AniScheduleListener): AniSubscription {
+    fun scheduleUpdates(): Flow<AniScheduleUpdate> {
         val timeZone = TimeZone.currentSystemDefault()
         val today = Clock.System.todayIn(timeZone)
-        return scope.launchObserver(
-            callbackContext,
-            getAnimeSchedule(today, timeZone).map { days -> days.map { it.toAniScheduleDay() } },
-            onError = { listener.onError(it.message ?: it.toString()) },
-        ) { listener.onSchedule(it) }
+        return getAnimeSchedule(today, timeZone).forSwift(
+            onValue = { days -> AniScheduleUpdate(days.map { it.toAniScheduleDay() }, null) },
+            onError = { AniScheduleUpdate(null, it) },
+        )
     }
 
     // endregion
@@ -310,41 +282,27 @@ class AniCore internal constructor(
     }
 }
 
+/** 条目详情的一次更新: [detail] 与 [error] 恰有一个非空. */
+data class AniSubjectDetailUpdate(val detail: AniSubjectDetail?, val error: String?)
+
+/** 收藏列表的一次更新: [items] 与 [error] 恰有一个非空. */
+data class AniCollectionsUpdate(val items: List<AniCollectionItem>?, val error: String?)
+
+/** 时间表的一次更新: [days] 与 [error] 恰有一个非空. */
+data class AniScheduleUpdate(val days: List<AniScheduleDay>?, val error: String?)
+
 /**
- * 一次 `observe*` 订阅. 调用 [cancel] 后不再回调.
+ * 登录过程中的事件. [openUrl] 非空时要求打开授权页; [finished] 为 `true` 时登录结束,
+ * 失败时 [error] 是错误类型名 (如 `NetworkError`), 可能为 `null`.
  */
-class AniSubscription internal constructor(private val job: Job) {
-    fun cancel() {
-        job.cancel()
+data class AniLoginEvent(
+    val openUrl: String?,
+    val finished: Boolean,
+    val success: Boolean,
+    val error: String?,
+) {
+    internal companion object {
+        fun openUrl(url: String) = AniLoginEvent(url, finished = false, success = false, error = null)
+        fun finished(success: Boolean, error: String?) = AniLoginEvent(null, finished = true, success, error)
     }
-}
-
-interface AniSubjectDetailListener {
-    fun onDetail(detail: AniSubjectDetail)
-    fun onError(message: String)
-}
-
-interface AniCollectionsListener {
-    fun onCollections(items: List<AniCollectionItem>)
-    fun onError(message: String)
-}
-
-interface AniScheduleListener {
-    fun onSchedule(days: List<AniScheduleDay>)
-    fun onError(message: String)
-}
-
-interface AniSessionListener {
-    fun onSession(session: AniSession)
-}
-
-interface AniLoginListener {
-    /** 打开授权页. */
-    fun onOpenUrl(url: String)
-
-    /**
-     * 登录结束, 每次登录恰好回调一次. 失败时 [errorMessage] 是错误类型名 (如 `NetworkError`), 取消时为 `Cancelled`,
-     * 可能为 `null`.
-     */
-    fun onFinished(success: Boolean, errorMessage: String?)
 }

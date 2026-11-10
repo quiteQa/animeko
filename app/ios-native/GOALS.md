@@ -62,7 +62,7 @@
 | 3. 仅 iOS 26 | 一致 | `project.yml` 的部署目标是 iOS 26.0, 界面直接使用 Liquid Glass, 没有降级 | 无 |
 | 4. 画中画与 AirPlay | 部分一致, 新增风险 | 画中画已实现, 基于 `AVPlayerLayer` 的 `AVPictureInPictureController`; AirPlay 没有专门处理 (AVPlayer 默认可投送) | 换到 MPV 后画中画需要重新实现 (见决策 4), AirPlay 方案在 M2 验证 |
 | 5. 不分发不开源 | 一致 | README: "只面向 iOS, 不向上游提交" | 补充 "不分发, 不开源" 的说明 (本文) |
-| 6. SKIE 桥接 | **冲突** | 未用 SKIE: facade 提供 `observe*(listener)`, Swift 在 `CoreBridge.swift` 中用 `AsyncStream` 包装; `suspend` 已由 Kotlin/Native 导出为 `async throws` | 引入 SKIE, 删除 listener 与 `CoreBridge.swift` 的手写适配. 当前 Kotlin 版本 2.4.10, 需要确认 SKIE 是否支持 |
+| 6. SKIE 桥接 | 一致 (已实现) | SKIE 0.10.16 (支持 Kotlin 2.4); facade 的 `observe*(listener)` 改为返回 `Flow` 的 `*Updates`, Swift 直接 `for await` | 无 |
 | 7. 锁定上游正式版 | **冲突** | 分支基于上游 `main`, 位于 `v6.4.0` 之后 16 个提交, 不是正式版 | 改为基于最新正式版 (目前是 `v6.4.0`), 之后按需升级 |
 | 8. 免费 Apple ID 签名 | 一致 | CI 产出未签名 IPA, 由 SideStore / AltStore 用自己的 Apple ID 重签 | 补充 7 天过期, 3 个应用上限, 推送与 iCloud 不可用的限制 (本文) |
 | 首版范围: 在线源 | 一致 | 已实现, 选源与解析复用上游 | 换内核后回归 |

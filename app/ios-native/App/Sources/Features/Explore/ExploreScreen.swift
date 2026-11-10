@@ -20,10 +20,11 @@ final class ExploreModel {
 
     func observeSchedule(core: AniCore) async {
         scheduleError = nil
-        for await update in core.scheduleUpdates {
-            switch update {
-            case .value(let days): schedule = days
-            case .failure(let message): scheduleError = message
+        for await update in core.scheduleUpdates() {
+            if let days = update.days {
+                schedule = days
+            } else {
+                scheduleError = update.error
             }
         }
     }

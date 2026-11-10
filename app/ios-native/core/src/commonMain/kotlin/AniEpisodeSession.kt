@@ -163,24 +163,23 @@ class AniEpisodeSession internal constructor(
     }
 
     /**
-     * 观察当前剧集经过滤与排序的候选资源. 查询过程中会随数据源返回而多次回调.
+     * 当前剧集经过滤与排序的候选资源. 查询过程中会随数据源返回而多次发出.
      *
      * @param preferredOnly 为 `true` 时只包含符合当前偏好 ([setPreference]) 的资源.
      */
-    fun observeCandidates(preferredOnly: Boolean, listener: AniCandidatesListener): AniSubscription = observe(
+    fun candidateUpdates(preferredOnly: Boolean): Flow<List<AniMediaCandidate>> =
         fetchSelect.filterNotNull()
             .flatMapLatest {
                 if (preferredOnly) it.mediaSelector.preferredCandidatesMedia else it.mediaSelector.filteredCandidatesMedia
             }
-            .map { list -> list.map { it.toCandidate() } },
-    ) { listener.onCandidates(it) }
+            .map { list -> list.map { it.toCandidate() } }
+            .forSwift()
 
     /**
-     * 观察每个数据源的查询状态.
+     * 每个数据源的查询状态.
      */
-    fun observeSources(listener: AniSourcesListener): AniSubscription = observe(
-        fetchSelect.filterNotNull().flatMapLatest { bundle -> bundle.sourceStatusFlow() },
-    ) { listener.onSources(it) }
+    val sourceUpdates: Flow<List<AniMediaSourceStatus>>
+        get() = fetchSelect.filterNotNull().flatMapLatest { bundle -> bundle.sourceStatusFlow() }.forSwift()
 
     /**
      * 重新查询一个失败或被放弃的数据源; 对已禁用的数据源则临时启用它.
@@ -192,10 +191,10 @@ class AniEpisodeSession internal constructor(
     }
 
     /**
-     * 观察选源偏好 (字幕组, 分辨率, 字幕语言, 数据源).
+     * 选源偏好 (字幕组, 分辨率, 字幕语言, 数据源).
      */
-    fun observePreferences(listener: AniPreferencesListener): AniSubscription = observe(
-        fetchSelect.filterNotNull().flatMapLatest { bundle ->
+    val preferenceUpdates: Flow<List<AniPreference>>
+        get() = fetchSelect.filterNotNull().flatMapLatest { bundle ->
             val selector = bundle.mediaSelector
             combine(
                 selector.alliance.toAniPreference(AniPreferenceKeys.ALLIANCE),
@@ -203,8 +202,7 @@ class AniEpisodeSession internal constructor(
                 selector.subtitleLanguageId.toAniPreference(AniPreferenceKeys.SUBTITLE_LANGUAGE),
                 selector.mediaSourceId.toAniPreference(AniPreferenceKeys.MEDIA_SOURCE),
             ) { a, b, c, d -> listOf(a, b, c, d) }
-        },
-    ) { listener.onPreferences(it) }
+        }.forSwift()
 
     /**
      * 设置一个偏好维度. [value] 为 `null` 时清除该维度的偏好. 偏好会保存并影响之后的自动选择.
@@ -260,20 +258,19 @@ class AniEpisodeSession internal constructor(
     }
 
     /**
-     * 观察已选择的资源. 自动选择与 [select] 都会触发回调; 未选择时为 `null`.
+     * 已选择的资源. 自动选择与 [select] 都会发出新值; 未选择时为 `null`.
      */
-    fun observeSelected(listener: AniSelectionListener): AniSubscription = observe(
-        fetchSelect.filterNotNull()
+    val selectionUpdates: Flow<AniMediaCandidate?>
+        get() = fetchSelect.filterNotNull()
             .flatMapLatest { it.mediaSelector.selected }
-            .map { it?.toCandidate() },
-    ) { listener.onSelected(it) }
+            .map { it?.toCandidate() }
+            .forSwift()
 
     /**
-     * 观察数据源查询进度.
+     * 数据源查询进度.
      */
-    fun observeFetchProgress(listener: AniFetchProgressListener): AniSubscription = observe(
-        fetchSelect.filterNotNull().flatMapLatest { bundle -> bundle.fetchProgressFlow() },
-    ) { listener.onProgress(it) }
+    val fetchProgressUpdates: Flow<AniFetchProgress>
+        get() = fetchSelect.filterNotNull().flatMapLatest { bundle -> bundle.fetchProgressFlow() }.forSwift()
 
     /**
      * 按 Animeko 的自动选源规则选择资源 (偏好, 数据源阶级, 快速选择超时), 等待到选出或所有数据源结束.
@@ -640,9 +637,6 @@ class AniEpisodeSession internal constructor(
     }
 
     private fun Media.toCandidate(): AniMediaCandidate = toAniMediaCandidate(playable = mediaResolver.supports(this))
-
-    private fun <T> observe(flow: Flow<T>, onValue: (T) -> Unit): AniSubscription =
-        scope.launchObserver(callbackContext, flow, onValue = onValue)
 }
 
 private fun MediaFetchSelectBundle.fetchProgressFlow(): Flow<AniFetchProgress> {
@@ -712,26 +706,6 @@ private fun SubjectEpisodeInfoBundle.toDanmakuFetchRequest(): DanmakuFetchReques
             episode.ep,
         ),
     )
-}
-
-interface AniCandidatesListener {
-    fun onCandidates(candidates: List<AniMediaCandidate>)
-}
-
-interface AniSelectionListener {
-    fun onSelected(candidate: AniMediaCandidate?)
-}
-
-interface AniSourcesListener {
-    fun onSources(sources: List<AniMediaSourceStatus>)
-}
-
-interface AniPreferencesListener {
-    fun onPreferences(preferences: List<AniPreference>)
-}
-
-interface AniFetchProgressListener {
-    fun onProgress(progress: AniFetchProgress)
 }
 
 /**

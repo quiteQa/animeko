@@ -12,12 +12,11 @@ final class SubjectModel {
     func observe(subjectId: Int32, core: AniCore) async {
         errorMessage = nil
         for await update in core.subjectDetailUpdates(subjectId: subjectId) {
-            switch update {
-            case .value(let detail):
+            if let detail = update.detail {
                 self.detail = detail
                 errorMessage = nil
-            case .failure(let message):
-                errorMessage = message
+            } else {
+                errorMessage = update.error
             }
         }
     }

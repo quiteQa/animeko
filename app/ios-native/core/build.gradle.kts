@@ -12,10 +12,12 @@ import org.jetbrains.kotlin.gradle.plugin.cocoapods.CocoapodsExtension
 
 // SwiftUI 原生客户端的 Kotlin facade, 以 CocoaPods 产出 AniCore.framework.
 // Swift 只能看到本模块的公开 API (transitiveExport = false), 上游 app-data 的 API 变动只影响这里.
-// 结构与边界见 app/ios-native/README.md.
+// 结构与边界见 app/ios-native/README.md. Swift 侧的桥接由 SKIE 生成.
 
 plugins {
     id("ani.kmp-library")
+    // Kotlin 与 Swift 的桥接: Flow 变为 AsyncSequence, suspend 变为 async. 版本必须支持当前的 Kotlin 版本.
+    id("co.touchlab.skie") version "0.10.16" apply false
 }
 
 /**
@@ -23,6 +25,11 @@ plugins {
  * application 的 iosMain 依赖 onnxruntime 的 cinterop, 只有在这个条件下才存在.
  */
 val buildsIosFramework = enableIos && buildIosFramework && getOs() == Os.MacOS
+
+// SKIE 只作用于 iOS framework 的链接; 不构建 framework 时不应用, 桌面端编译与测试不受影响.
+if (buildsIosFramework) {
+    apply(plugin = "co.touchlab.skie")
+}
 
 kotlin {
     android {
