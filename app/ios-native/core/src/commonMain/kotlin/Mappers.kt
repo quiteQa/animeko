@@ -17,6 +17,7 @@ import me.him188.ani.app.data.models.subject.SubjectInfo
 import me.him188.ani.app.data.models.subject.displayName
 import me.him188.ani.app.data.models.trending.TrendingSubjectInfo
 import me.him188.ani.app.domain.episode.AiringScheduleForDate
+import me.him188.ani.app.domain.episode.SubjectRecommendation
 import me.him188.ani.app.domain.media.fetch.MediaSourceFetchState
 import me.him188.ani.danmaku.api.DanmakuInfo
 import me.him188.ani.danmaku.api.DanmakuLocation
@@ -41,6 +42,7 @@ internal fun SubjectInfo.toAniSubject(mainEpisodeCount: Int = 0): AniSubject = A
     airDate = airDate.toAniDateString(),
     totalEpisodes = mainEpisodeCount,
     nsfw = nsfw,
+    score = ratingInfo.score.takeIf { ratingInfo.scoreFloat > 0f }.orEmpty(),
 )
 
 internal fun EpisodeCollectionInfo.toAniEpisode(): AniEpisode = AniEpisode(
@@ -49,6 +51,7 @@ internal fun EpisodeCollectionInfo.toAniEpisode(): AniEpisode = AniEpisode(
     displayName = episodeInfo.displayName,
     airDate = episodeInfo.airDate.toAniDateString(),
     watched = collectionType == UnifiedCollectionType.DONE,
+    imageUrl = episodeInfo.imageMedium.orEmpty(),
 )
 
 internal fun Media.toAniMediaCandidate(playable: Boolean): AniMediaCandidate = AniMediaCandidate(
@@ -84,6 +87,16 @@ internal fun DanmakuInfo.toAniDanmaku(): AniDanmaku = AniDanmaku(
         DanmakuLocation.BOTTOM -> AniDanmakuLocation.BOTTOM
         DanmakuLocation.NORMAL -> AniDanmakuLocation.NORMAL
     },
+    serviceId = serviceId.value,
+)
+
+internal fun SubjectRecommendation.toAniRecommendation(): AniRecommendation = AniRecommendation(
+    subjectId = subjectId?.toInt(),
+    name = nameCn?.takeIf { it.isNotBlank() } ?: name,
+    desc1 = desc1,
+    desc2 = desc2,
+    imageUrl = imageUrl,
+    uri = uri,
 )
 
 internal fun PackedDate.toAniDateString(): String = if (isValid) "$year-$month-$day" else ""

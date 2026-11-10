@@ -59,6 +59,7 @@ class MappersTest {
                 text = "hello",
                 color = 0xFF0000,
                 location = AniDanmakuLocation.TOP,
+                serviceId = "test",
             ),
             info.toAniDanmaku(),
         )

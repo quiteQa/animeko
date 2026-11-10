@@ -27,6 +27,8 @@ data class AniSubject(
     val airDate: String,
     val totalEpisodes: Int,
     val nsfw: Boolean,
+    /** Bangumi 评分, 如 `8.9`; 没有评分时为空字符串. */
+    val score: String = "",
 )
 
 /**
@@ -39,6 +41,8 @@ data class AniEpisode(
     val displayName: String,
     val airDate: String,
     val watched: Boolean,
+    /** 剧照地址; 没有时为空字符串. */
+    val imageUrl: String = "",
 )
 
 /**
@@ -207,6 +211,22 @@ data class AniDanmaku(
     val text: String,
     val color: Int,
     val location: AniDanmakuLocation,
+    /** 弹幕源, 如 `Dandanplay`, `Bilibili`. */
+    val serviceId: String,
+)
+
+/**
+ * 相关推荐中的一项.
+ *
+ * @param subjectId 推荐的是站内条目时为条目 ID; 否则为 `null`, 此时用 [uri] 打开外部页面.
+ */
+data class AniRecommendation(
+    val subjectId: Int?,
+    val name: String,
+    val desc1: String,
+    val desc2: String,
+    val imageUrl: String,
+    val uri: String?,
 )
 
 // region P3: 探索, 评论, 设置, 缓存

@@ -37,6 +37,8 @@ final class PlayerModel {
     private(set) var duration: TimeInterval = 0
     private(set) var isPlaying = false
     var isDanmakuEnabled = true
+    /// 用户在本次播放中关闭的弹幕源 (`AniDanmaku.serviceId`).
+    var disabledDanmakuSources: Set<String> = []
     /// 画质增强档位, 同时作用于内嵌与全屏画面.
     var enhancementMode: VideoEnhancementMode = .off
     /// 是否在画面上显示播放信息.
@@ -114,7 +116,22 @@ final class PlayerModel {
     }
 
     /// 按设置筛选要显示的弹幕类型.
+    /// 本集的弹幕源及各自的弹幕数量, 按数量降序.
+    var danmakuSources: [DanmakuSource] {
+        Dictionary(grouping: danmaku, by: \.serviceId)
+            .map { DanmakuSource(id: $0.key, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
+    }
+
+    /// 已启用的弹幕源中的弹幕数量.
+    var enabledDanmakuCount: Int {
+        disabledDanmakuSources.isEmpty ? danmaku.count : danmaku.filter { !disabledDanmakuSources.contains($0.serviceId) }.count
+    }
+
     func visibleDanmaku(settings: AniSettings?) -> [AniDanmaku] {
+        let danmaku = disabledDanmakuSources.isEmpty
+            ? self.danmaku
+            : self.danmaku.filter { !disabledDanmakuSources.contains($0.serviceId) }
         guard let settings else { return danmaku }
         if settings.danmakuShowTop, settings.danmakuShowBottom, settings.danmakuShowFloating { return danmaku }
         return danmaku.filter { item in
@@ -445,6 +462,22 @@ final class PlayerModel {
         case "FETCH_TIMEOUT": "解析超时, 请换一个资源"
         case "UNSUPPORTED", "UNSUPPORTED_VIDEO_SOURCE", "ENGINE_DISABLED": "iOS 暂不支持播放这种资源"
         default: error.localizedDescription
+        }
+    }
+}
+
+/// 一个弹幕源及其弹幕数量.
+struct DanmakuSource: Identifiable, Hashable {
+    let id: String
+    let count: Int
+
+    var name: String {
+        switch id {
+        case "Dandanplay": "弹弹play"
+        case "Bilibili": "哔哩哔哩"
+        case "Baha": "巴哈姆特"
+        case "Acfun": "AcFun"
+        default: id
         }
     }
 }

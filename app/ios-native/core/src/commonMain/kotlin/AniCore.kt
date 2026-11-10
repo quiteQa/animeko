@@ -33,6 +33,7 @@ import me.him188.ani.app.data.repository.subject.SetSubjectCollectionTypeOrDelet
 import me.him188.ani.app.data.repository.subject.SubjectCollectionRepository
 import me.him188.ani.app.data.repository.user.UserRepository
 import me.him188.ani.app.domain.episode.GetAnimeScheduleFlowUseCase
+import me.him188.ani.app.domain.episode.GetSubjectRecommendationUseCase
 import me.him188.ani.app.domain.session.SessionManager
 import me.him188.ani.app.domain.session.SessionState
 import me.him188.ani.app.domain.session.SessionStateProvider
@@ -65,6 +66,7 @@ class AniCore internal constructor(
     private val userRepository: UserRepository by lazy { koin.get() }
     private val trendsRepository: TrendsRepository by lazy { koin.get() }
     private val getAnimeSchedule: GetAnimeScheduleFlowUseCase by lazy { koin.get() }
+    private val getSubjectRecommendation: GetSubjectRecommendationUseCase by lazy { koin.get() }
     private val episodeCommentService: AniEpisodeCommentService by lazy { koin.get() }
     private val subjectCommentService: BangumiCommentService by lazy { koin.get() }
 
@@ -215,6 +217,14 @@ class AniCore internal constructor(
     // endregion
 
     // region 探索
+
+    /**
+     * 条目的相关推荐.
+     */
+    @Throws(Exception::class)
+    suspend fun subjectRecommendations(subjectId: Int): List<AniRecommendation> {
+        return getSubjectRecommendation(subjectId).map { it.toAniRecommendation() }
+    }
 
     /**
      * 热门条目 (Ani 服务器统计).

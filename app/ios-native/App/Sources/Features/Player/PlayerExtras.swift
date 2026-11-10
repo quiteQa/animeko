@@ -45,6 +45,8 @@ enum VideoEnhancementMode: Int, CaseIterable, Identifiable {
 /// 播放器右上角的「更多选项」菜单: 画质增强, 播放信息, 外部链接与下载. 内嵌与全屏共用.
 struct PlayerMoreMenu<Label: View>: View {
     @Bindable var model: PlayerModel
+    /// 非空时菜单中显示「评论」.
+    var onShowComments: (() -> Void)?
     @ViewBuilder let label: Label
 
     @Environment(\.openURL) private var openURL
@@ -71,6 +73,10 @@ struct PlayerMoreMenu<Label: View>: View {
                 externalLinks
             } label: {
                 SwiftUI.Label("外部链接", systemImage: "arrow.up.forward.app")
+            }
+
+            if let onShowComments {
+                Button("评论", systemImage: "text.bubble", action: onShowComments)
             }
 
             Button("下载", systemImage: "arrow.down.circle") {
