@@ -2,6 +2,8 @@
 
 保留 Animeko 的 Kotlin 数据层, 界面用 SwiftUI 重写的 iOS 客户端. 只面向 iOS, 不向上游提交.
 
+本文描述当前实现. 目标与已定决策 (MPV 内核, BT, SKIE 桥接等) 见 [GOALS.md](GOALS.md), 其中列出了与当前实现的差异.
+
 ```
 app/ios-native/
 ├── core/            Kotlin facade, Gradle 模块 :app:ios-native:core, 产出 AniCore.framework
