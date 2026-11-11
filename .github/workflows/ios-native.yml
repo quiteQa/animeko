@@ -26,7 +26,7 @@ jobs:
     env:
       JBR_FILE: 'jbrsdk_jcef-21.0.11-osx-aarch64-b1163.125.tar.gz'
     steps:
-    - uses: 'actions/checkout@v4'
+    - uses: 'actions/checkout@v6'
       with:
         submodules: 'recursive'
 
@@ -50,14 +50,16 @@ jobs:
         actual=$(shasum -a 512 "$RUNNER_TEMP/$JBR_FILE" | awk '{print $1}')
         test "$expected" = "$actual"
 
+    # 直接解压 JBR 并设置 JAVA_HOME, 不依赖第三方 setup-java action
     - name: 'Setup JBR 21'
-      uses: 'gmitch215/setup-java@6d2c5e1f82f180ae79f799f0ed6e3e5efb4e664d'
-      with:
-        java-version: '21'
-        distribution: 'jdkfile'
-        jdkFile: '${{ runner.temp }}/${{ env.JBR_FILE }}'
-      env:
-        GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+      run: |
+        mkdir -p "$RUNNER_TEMP/jbr"
+        tar -xzf "$RUNNER_TEMP/$JBR_FILE" -C "$RUNNER_TEMP/jbr"
+        home=$(dirname "$(find "$RUNNER_TEMP/jbr" -path '*/Contents/Home/bin/java' -type f | head -1)")
+        home=$(dirname "$home")
+        test -x "$home/bin/java"
+        echo "JAVA_HOME=$home" >> "$GITHUB_ENV"
+        echo "$home/bin" >> "$GITHUB_PATH"
 
     - name: 'Show toolchain'
       run: |
@@ -154,7 +156,7 @@ jobs:
         ls -lh "$RUNNER_TEMP/AnimekoNative-unsigned.ipa"
 
     - name: 'Upload IPA'
-      uses: 'actions/upload-artifact@v4'
+      uses: 'actions/upload-artifact@v6'
       with:
         name: 'AnimekoNative-unsigned-ipa'
         path: '${{ runner.temp }}/AnimekoNative-unsigned.ipa'
@@ -166,7 +168,7 @@ jobs:
 
     - name: 'Upload build log'
       if: '${{ failure() }}'
-      uses: 'actions/upload-artifact@v4'
+      uses: 'actions/upload-artifact@v6'
       with:
         name: 'xcodebuild-log'
         path: '${{ runner.temp }}/xcodebuild.log'
