@@ -82,11 +82,28 @@ final class MPVPlayer: @unchecked Sendable {
             ("demuxer-max-back-bytes", "50MiB"),
             ("subs-fallback", "yes"),
             ("terminal", "no"),
+            // 不读取配置目录, 不加载内置 Lua 脚本 (osc, stats, console 等): 界面全部由 SwiftUI 提供,
+            // 脚本在 iOS 上也无处安放
+            ("config", "no"),
+            ("load-scripts", "no"),
+            ("osc", "no"),
+            ("load-stats-overlay", "no"),
+            ("load-console", "no"),
+            ("load-select", "no"),
+            ("load-positioning", "no"),
+            ("load-commands", "no"),
+            ("load-context-menu", "no"),
+            ("load-auto-profiles", "no"),
+            ("input-media-keys", "no"),
+            ("input-terminal", "no"),
             // mpv 的详细日志直接写文件: 初始化过程中崩溃时, 事件队列里的日志来不及读出
             ("log-file", Diagnostics.mpvLogURL.path),
             ("msg-level", "all=debug"),
         ] {
-            mpv_set_option_string(handle, name, value)
+            let status = mpv_set_option_string(handle, name, value)
+            if status < 0 {
+                Diagnostics.log("mpv: 选项 \(name)=\(value) 失败: \(String(cString: mpv_error_string(status)))")
+            }
         }
         // mpv 自己的警告与错误也写入诊断日志
         mpv_request_log_messages(handle, "warn")
