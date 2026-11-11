@@ -28,6 +28,8 @@ final class MPVPlayer: @unchecked Sendable {
     var onLoadFailed: ((String) -> Void)?
 
     private var handle: OpaquePointer?
+    /// libmpv 唤醒回调持有的上下文. 只弱引用播放器, 播放器释放后回调不再访问它.
+    private var wakeupTarget: Unmanaged<WakeupTarget>?
     private let queue = DispatchQueue(label: "me.him188.ani.native.mpv", qos: .userInitiated)
 
     private enum Property: UInt64, CaseIterable {
@@ -83,10 +85,16 @@ final class MPVPlayer: @unchecked Sendable {
         for property in Property.allCases {
             mpv_observe_property(handle, property.rawValue, property.name, property.format)
         }
+        let target = Unmanaged.passRetained(WakeupTarget(self))
+        wakeupTarget = target
         mpv_set_wakeup_callback(handle, { context in
             guard let context else { return }
-            Unmanaged<MPVPlayer>.fromOpaque(context).takeUnretainedValue().drainEvents()
-        }, Unmanaged.passUnretained(self).toOpaque())
+            Unmanaged<WakeupTarget>.fromOpaque(context).takeUnretainedValue().player?.drainEvents()
+        }, target.toOpaque())
+    }
+
+    deinit {
+        destroy()
     }
 
     /// 停止并释放 libmpv. 之后不能再使用.
@@ -94,7 +102,17 @@ final class MPVPlayer: @unchecked Sendable {
         guard let handle else { return }
         self.handle = nil
         mpv_set_wakeup_callback(handle, nil, nil)
-        queue.async { mpv_terminate_destroy(handle) }
+        let target = wakeupTarget
+        wakeupTarget = nil
+        queue.async {
+            mpv_terminate_destroy(handle)
+            target?.release()
+        }
+    }
+
+    private final class WakeupTarget {
+        weak var player: MPVPlayer?
+        init(_ player: MPVPlayer) { self.player = player }
     }
 
     // MARK: - 控制

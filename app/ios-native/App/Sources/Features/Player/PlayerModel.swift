@@ -22,7 +22,8 @@ final class PlayerModel {
     }
 
     private(set) var target: PlaybackTarget
-    let player = MPVPlayer()
+    /// 播放内核. 首次使用时创建: SwiftUI 可能多次构造播放页的初始状态, 不应为每次构造都启动 libmpv.
+    @ObservationIgnored private(set) lazy var player = MPVPlayer()
 
     private(set) var phase: Phase = .fetching
     /// 所有候选资源 (不按偏好过滤)
