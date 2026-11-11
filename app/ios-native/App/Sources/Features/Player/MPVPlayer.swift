@@ -82,6 +82,9 @@ final class MPVPlayer: @unchecked Sendable {
             ("demuxer-max-back-bytes", "50MiB"),
             ("subs-fallback", "yes"),
             ("terminal", "no"),
+            // mpv 的详细日志直接写文件: 初始化过程中崩溃时, 事件队列里的日志来不及读出
+            ("log-file", Diagnostics.mpvLogURL.path),
+            ("msg-level", "all=debug"),
         ] {
             mpv_set_option_string(handle, name, value)
         }

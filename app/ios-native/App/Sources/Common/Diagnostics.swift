@@ -8,6 +8,9 @@ import UIKit
 enum Diagnostics {
     static let logURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("diagnostics.log")
+    /// mpv 自己的日志 (`log-file`), 每次创建播放器时覆盖.
+    static let mpvLogURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("mpv.log")
 
     /// 信号处理函数只能访问全局状态, 因此文件描述符放在静态变量中.
     nonisolated(unsafe) fileprivate static var fd: Int32 = -1
@@ -44,7 +47,24 @@ enum Diagnostics {
     }
 
     static func read() -> String {
-        (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        var text = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        if let mpv = try? String(contentsOf: mpvLogURL, encoding: .utf8), !mpv.isEmpty {
+            // mpv 日志很长, 只保留最后部分
+            text += "\n===== mpv.log (最后 200 行)\n" + mpv.split(separator: "\n", omittingEmptySubsequences: false)
+                .suffix(200).joined(separator: "\n")
+        }
+        return text
+    }
+
+    /// 分享用的完整内容: 诊断日志与 mpv 日志合并成一个文件.
+    static func exportFile() -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("animeko-diagnostics.txt")
+        var text = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        if let mpv = try? String(contentsOf: mpvLogURL, encoding: .utf8) {
+            text += "\n===== mpv.log\n" + mpv
+        }
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 
     static func clear() {
@@ -52,6 +72,7 @@ enum Diagnostics {
         defer { lock.unlock() }
         guard fd >= 0 else { return }
         ftruncate(fd, 0)
+        try? FileManager.default.removeItem(at: mpvLogURL)
     }
 
     private static func trimIfNeeded() {
@@ -100,7 +121,7 @@ struct DiagnosticsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                ShareLink(item: Diagnostics.logURL) {
+                ShareLink(item: Diagnostics.exportFile()) {
                     Label("分享", systemImage: "square.and.arrow.up")
                 }
             }
