@@ -9,6 +9,7 @@ struct AniNativeApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        Diagnostics.install()
         // 画中画与后台播放需要 playback 音频会话, 必须在任何播放开始前激活.
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)

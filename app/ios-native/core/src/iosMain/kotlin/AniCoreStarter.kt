@@ -9,6 +9,7 @@
 
 package me.him188.ani.app.iosnative.core
 
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.io.files.SystemFileSystem
 import me.him188.ani.app.ios.getIosModules
@@ -23,6 +24,14 @@ import me.him188.ani.utils.io.createDirectories
 import me.him188.ani.utils.io.resolve
 import me.him188.ani.utils.logging.IosLoggingConfigurator
 import org.koin.core.context.startKoin
+import platform.Foundation.NSCachesDirectory
+import platform.Foundation.NSSearchPathForDirectoriesInDomains
+import platform.Foundation.NSUserDomainMask
+import platform.posix.fclose
+import platform.posix.fopen
+import platform.posix.fputs
+import kotlin.experimental.ExperimentalNativeApi
+import kotlin.native.setUnhandledExceptionHook
 
 private var instance: AniClient? = null
 
@@ -34,6 +43,7 @@ private var instance: AniClient? = null
  */
 fun startAniCore(): AniClient {
     instance?.let { return it }
+    installCrashLogHook()
 
     val scope = createAppRootCoroutineScope()
     val context = IosContext(
@@ -50,4 +60,20 @@ fun startAniCore(): AniClient {
     }.startCommonKoinModule(context, scope).koin
 
     return AniClient(koin, scope, Dispatchers.Main).also { instance = it }
+}
+
+/**
+ * 未处理的 Kotlin 异常会结束进程. 结束前把异常写入 Swift 侧的诊断日志 (缓存目录的 `diagnostics.log`),
+ * 系统没有生成崩溃报告时也能看到原因.
+ */
+@OptIn(ExperimentalNativeApi::class, ExperimentalForeignApi::class)
+private fun installCrashLogHook() {
+    val cacheDir = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, true).firstOrNull() as? String
+        ?: return
+    val path = "$cacheDir/diagnostics.log"
+    setUnhandledExceptionHook { throwable ->
+        val file = fopen(path, "a") ?: return@setUnhandledExceptionHook
+        fputs("\n!!! 未处理的 Kotlin 异常\n${throwable.stackTraceToString()}\n", file)
+        fclose(file)
+    }
 }

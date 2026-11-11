@@ -58,7 +58,11 @@ final class MPVPlayer: @unchecked Sendable {
     }
 
     init() {
-        guard let handle = mpv_create() else { return }
+        Diagnostics.log("mpv: mpv_create")
+        guard let handle = mpv_create() else {
+            Diagnostics.log("mpv: mpv_create 返回空")
+            return
+        }
         self.handle = handle
         var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(videoView.metalLayer).toOpaque()))
         mpv_set_option(handle, "wid", MPV_FORMAT_INT64, &wid)
@@ -81,7 +85,11 @@ final class MPVPlayer: @unchecked Sendable {
         ] {
             mpv_set_option_string(handle, name, value)
         }
-        mpv_initialize(handle)
+        // mpv 自己的警告与错误也写入诊断日志
+        mpv_request_log_messages(handle, "warn")
+        Diagnostics.log("mpv: mpv_initialize")
+        let initialized = mpv_initialize(handle)
+        Diagnostics.log("mpv: mpv_initialize = \(initialized) \(String(cString: mpv_error_string(initialized)))")
         for property in Property.allCases {
             mpv_observe_property(handle, property.rawValue, property.name, property.format)
         }
@@ -91,6 +99,7 @@ final class MPVPlayer: @unchecked Sendable {
             guard let context else { return }
             Unmanaged<WakeupTarget>.fromOpaque(context).takeUnretainedValue().player?.drainEvents()
         }, target.toOpaque())
+        Diagnostics.log("mpv: 已就绪")
     }
 
     deinit {
@@ -128,6 +137,7 @@ final class MPVPlayer: @unchecked Sendable {
             }
         }
         setString("http-header-fields", others.joined(separator: ","))
+        Diagnostics.log("mpv: loadfile \(URL(string: url)?.host() ?? "?") start=\(Int(start)) headers=\(headers.keys.sorted())")
         var options = ["pause=\(autoplay ? "no" : "yes")"]
         if start > 0 { options.append("start=\(start)") }
         command(["loadfile", url, "replace", "-1", options.joined(separator: ",")])
@@ -250,6 +260,13 @@ final class MPVPlayer: @unchecked Sendable {
                     default: 0
                     }
                     events.append(.property(property, value))
+                case MPV_EVENT_LOG_MESSAGE:
+                    if let message = event.data?.assumingMemoryBound(to: mpv_event_log_message.self).pointee {
+                        let prefix = message.prefix.map { String(cString: $0) } ?? "?"
+                        let text = message.text.map { String(cString: $0) } ?? ""
+                        Diagnostics.log("mpv[\(prefix)] \(text.trimmingCharacters(in: .newlines))")
+                    }
+                    continue
                 case MPV_EVENT_END_FILE:
                     guard let end = event.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee else { continue }
                     if end.reason == MPV_END_FILE_REASON_ERROR {

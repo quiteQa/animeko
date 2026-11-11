@@ -29,6 +29,11 @@ struct SettingsScreen: View {
                     Label(errorMessage, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
                 }
             }
+            Section {
+                NavigationLink("诊断日志") { DiagnosticsScreen() }
+            } footer: {
+                Text("记录播放器启动的各个步骤与崩溃信息, 闪退后可在这里查看并分享.")
+            }
         }
         .navigationTitle("设置")
     }

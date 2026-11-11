@@ -105,6 +105,7 @@ final class PlayerModel {
     /// 开始播放. `settings` 每次读取时返回当前设置.
     func start(core: AniClient, settings: @escaping () -> AniSettings?) {
         guard self.core == nil else { return }
+        Diagnostics.log("播放页: 开始 \(target.subject.displayName) 第 \(target.episode.sort) 话")
         self.core = core
         self.settings = settings
         if let current = settings() {
@@ -404,6 +405,7 @@ final class PlayerModel {
     // MARK: - 播放
 
     private func play(session: AniEpisodeSession) {
+        Diagnostics.log("播放页: 解析选中的资源")
         resolveTask?.cancel()
         reportProgress(force: true)
         phase = .resolving
@@ -419,6 +421,7 @@ final class PlayerModel {
                 }
                 let playable = try await session.resolveSelected(startPositionMillis: Int64(resumeAt * 1000))
                 guard let self, !Task.isCancelled else { return }
+                Diagnostics.log("播放页: 已解析资源")
                 self.playable = playable
                 // 换源后时间轴可能不同, 重新加载跳过片段
                 resetSkipState()

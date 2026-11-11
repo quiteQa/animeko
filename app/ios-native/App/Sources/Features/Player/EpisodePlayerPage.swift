@@ -23,6 +23,7 @@ struct EpisodePlayerPage: View {
     @State private var commentsExpanded = false
 
     init(target: PlaybackTarget) {
+        Diagnostics.log("播放页: 构造 \(target.subject.displayName) 第 \(target.episode.sort) 话")
         _model = State(initialValue: PlayerModel(target: target))
     }
 
