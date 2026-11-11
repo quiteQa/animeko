@@ -323,6 +323,7 @@ struct EpisodeListMenu<Label: View>: View {
                 }
             }
             .pickerStyle(.inline)
+            .reportsMenuPresence(to: model)
         } label: {
             label
         }
@@ -369,6 +370,7 @@ struct PlayerSettingsMenu<Label: View>: View {
             ) {
                 model.showsStats.toggle()
             }
+            .reportsMenuPresence(to: model)
 
             Menu {
                 ExternalLinksMenuContent(model: model)
@@ -465,5 +467,13 @@ struct PlayerSettingsMenu<Label: View>: View {
                 }
             },
         )
+    }
+}
+
+/// 加在控件菜单的一个菜单项上: 菜单展开期间向 `PlayerModel` 报告, 使控件在菜单关闭之前保持显示.
+extension View {
+    func reportsMenuPresence(to model: PlayerModel) -> some View {
+        onAppear { model.menuDidOpen() }
+            .onDisappear { model.menuDidClose() }
     }
 }

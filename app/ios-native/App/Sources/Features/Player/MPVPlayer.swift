@@ -346,6 +346,22 @@ final class MPVVideoView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         metalLayer.contentsScale = window?.screen.nativeScale ?? traitCollection.displayScale
+        updateDrawableSize()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateDrawableSize()
+    }
+
+    /// MoltenVK 创建交换链时会显式设置 drawableSize, 此后它不随视图大小变化. 视图大小改变 (内嵌与全屏切换, 旋转) 时
+    /// 在这里更新, mpv 据此重建交换链, 画面才会铺满新的大小.
+    private func updateDrawableSize() {
+        let scale = metalLayer.contentsScale
+        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        if size.width > 1, size.height > 1, metalLayer.drawableSize != size {
+            metalLayer.drawableSize = size
+        }
     }
 }
 

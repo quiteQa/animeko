@@ -129,6 +129,9 @@ struct PlayerScreen: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.pendingSkip?.name)
         .task { scheduleHideControls() }
+        .onChange(of: model.isMenuOpen) { _, open in
+            if !open { scheduleHideControls() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             // 横持过手机之后再竖过来, 即退出全屏回到播放页; 锁定时不响应
             guard !isLocked else { return }
@@ -144,7 +147,8 @@ struct PlayerScreen: View {
         hideControlsTask?.cancel()
         hideControlsTask = Task {
             try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled, model.isPlaying || isLocked else { return }
+            // 菜单展开时保持显示; 菜单关闭后重新计时
+            guard !Task.isCancelled, !model.isMenuOpen, model.isPlaying || isLocked else { return }
             withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
         }
     }

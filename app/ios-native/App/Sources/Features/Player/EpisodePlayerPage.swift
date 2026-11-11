@@ -239,6 +239,9 @@ private struct InlinePlayer: View {
         .onChange(of: model.isPlaying) { _, playing in
             if playing { scheduleHide() }
         }
+        .onChange(of: model.isMenuOpen) { _, open in
+            if !open { scheduleHide() }
+        }
     }
 
     @ViewBuilder
@@ -404,7 +407,7 @@ private struct InlinePlayer: View {
         hideTask?.cancel()
         hideTask = Task {
             try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled, model.isPlaying else { return }
+            guard !Task.isCancelled, !model.isMenuOpen, model.isPlaying else { return }
             withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
         }
     }

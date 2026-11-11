@@ -63,6 +63,7 @@ struct PlayerMoreMenu<Label: View>: View {
             ) {
                 model.showsStats.toggle()
             }
+            .reportsMenuPresence(to: model)
 
             Menu {
                 ExternalLinksMenuContent(model: model)
