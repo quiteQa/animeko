@@ -148,6 +148,20 @@ jobs:
         CODE_SIGN_IDENTITY=""
         | tee "$RUNNER_TEMP/xcodebuild.log"
 
+    - name: 'Check FFmpeg linkage'
+      # App 静态链接 MPVKit 的 FFmpeg; MediampFFmpegKit (另一版本的 FFmpeg) 只能由 AniCore 链接
+      run: |
+        app="$RUNNER_TEMP/AnimekoNative.xcarchive/Products/Applications/AnimekoNative.app/AnimekoNative"
+        otool -L "$app"
+        if otool -L "$app" | grep -q MediampFFmpegKit; then
+          echo "::error::App binary links MediampFFmpegKit; mpv would bind to the wrong FFmpeg"
+          exit 1
+        fi
+        if nm -u "$app" | grep -E '^_(avcodec|avformat|avutil|av)_version$'; then
+          echo "::error::App binary imports FFmpeg symbols from a dynamic library"
+          exit 1
+        fi
+
     - name: 'Package IPA'
       run: |
         mkdir -p "$RUNNER_TEMP/ipa/Payload"

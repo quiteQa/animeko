@@ -39,10 +39,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: me.him188.ani.native.app
         TARGETED_DEVICE_FAMILY: "1,2"
-    # AniCore 由 CocoaPods 集成 (见 Podfile); MediampFFmpegKit 由 Gradle 解压, 是动态 framework, 需要随 App 嵌入
+    # AniCore 由 CocoaPods 集成 (见 Podfile); MediampFFmpegKit 由 Gradle 解压, 是 AniCore 依赖的动态 framework (FFmpeg 8),
+    # 只随 App 嵌入, 不链接到 App 本身: App 静态链接 MPVKit 自带的 FFmpeg, 若同时链接 MediampFFmpegKit,
+    # 链接器会把 mpv 的部分 FFmpeg 符号解析到 MediampFFmpegKit, mpv 检测到版本不一致后在 mpv_initialize 中退出.
     dependencies:
       - framework: ../../../utils/http-downloader/build/mediamp-ffmpeg/apple-runtime/MediampFFmpegKit.xcframework
         embed: true
+        link: false
       - package: MPVKit
         product: MPVKit
   AnimekoNativeTests:
