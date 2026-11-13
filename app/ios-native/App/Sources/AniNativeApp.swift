@@ -31,27 +31,48 @@ struct AniNativeApp: App {
     }
 }
 
+/// 底部的标签页. 原始值保存在 `UserDefaults` 中, 作为启动时进入的页面.
+enum RootTab: String, CaseIterable, Identifiable {
+    case collection, explore, account, search
+
+    static let launchTabKey = "launchTab"
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .collection: "追番"
+        case .explore: "探索"
+        case .account: "我的"
+        case .search: "搜索"
+        }
+    }
+}
+
 private struct RootView: View {
+    /// 只在启动时读取一次设置; 之后切换标签不改变设置.
+    @State private var tab = RootTab(rawValue: UserDefaults.standard.string(forKey: RootTab.launchTabKey) ?? "") ?? .collection
+
     var body: some View {
-        TabView {
-            Tab("追番", systemImage: "play.square.stack") {
+        TabView(selection: $tab) {
+            Tab("追番", systemImage: "play.square.stack", value: RootTab.collection) {
                 NavigationStack {
                     CollectionScreen()
                         .subjectNavigation()
                 }
             }
-            Tab("探索", systemImage: "sparkles.tv") {
+            Tab("探索", systemImage: "sparkles.tv", value: RootTab.explore) {
                 NavigationStack {
                     ExploreScreen()
                         .subjectNavigation()
                 }
             }
-            Tab("我的", systemImage: "person.crop.circle") {
+            Tab("我的", systemImage: "person.crop.circle", value: RootTab.account) {
                 NavigationStack {
                     AccountScreen()
                 }
             }
-            Tab(role: .search) {
+            Tab(value: RootTab.search, role: .search) {
                 NavigationStack {
                     SearchScreen()
                         .subjectNavigation()

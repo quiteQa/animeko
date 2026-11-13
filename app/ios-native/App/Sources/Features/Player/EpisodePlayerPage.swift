@@ -2,9 +2,8 @@ import AniCore
 import Combine
 import SwiftUI
 
-/// 播放页. 自上而下: 视频, 标题, 播放源, 弹幕源, 评论 (折叠), 剧集列表, 相关推荐.
-///
-/// 评论展开后占据弹幕源以下的全部空间, 单独滚动, 底部显示评论框; 剧集列表与相关推荐在收起评论后显示.
+/// 播放页. 视频固定在顶部, 下方是「详情」与「评论」两页, 左右滑动或点按标签切换.
+/// 详情页自上而下: 标题, 播放源, 弹幕源, 剧集列表, 相关推荐. 评论页单独滚动, 底部是评论框.
 ///
 /// 视频固定在顶部, 其余内容在下方滚动. 页面持有 `PlayerModel` 与播放会话; 全屏是叠在页面之上的同一个播放内核
 /// 的另一个视图, 与界面旋转一起淡入淡出, 退出全屏后回到这里继续播放. 离开页面 (返回) 时结束播放.
@@ -20,7 +19,7 @@ struct EpisodePlayerPage: View {
     @State private var showsDanmakuSources = false
     /// 本集评论; 切换剧集时重新创建.
     @State private var comments: CommentsModel?
-    @State private var commentsExpanded = false
+    @State private var tab = PageTab.details
 
     init(target: PlaybackTarget) {
         Diagnostics.log("播放页: 构造 \(target.subject.displayName) 第 \(target.episode.sort) 话")
@@ -39,33 +38,38 @@ struct EpisodePlayerPage: View {
                 onShowSources: { showsSourcePicker = true },
             )
 
-            if commentsExpanded, let comments {
-                // 评论展开: 上方信息固定, 评论列表占满其余高度并单独滚动, 底部是评论框
-                details
-                    .padding(.horizontal, 16)
-                    .padding(.top, 18)
-                    .padding(.bottom, 10)
-                EpisodeCommentList(model: comments)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else {
+            PageTabBar(selection: $tab, commentsCaption: commentsCaption)
+
+            TabView(selection: $tab) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
                         details
                         episodesAndRelated
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 18)
+                    .padding(.top, 14)
                     .padding(.bottom, 40)
                 }
                 .scrollIndicators(.hidden)
+                .tag(PageTab.details)
+
+                Group {
+                    if let comments {
+                        EpisodeCommentList(model: comments)
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .tag(PageTab.comments)
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .background(Color(.systemGroupedBackground))
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .overlay {
             if showsFullscreen {
-                PlayerScreen(model: model, onExitFullscreen: exitFullscreen) {
+                PlayerScreen(model: model, ownsVideo: showsFullscreen, onExitFullscreen: exitFullscreen) {
                     // 先转回竖屏, 再关闭播放页
                     OrientationLock.restorePortrait()
                     Task {
@@ -146,18 +150,21 @@ struct EpisodePlayerPage: View {
         }
     }
 
-    /// 标题, 播放源, 弹幕源与评论入口.
+    /// 标题, 播放源与弹幕源.
     private var details: some View {
         VStack(alignment: .leading, spacing: 24) {
             TitleSection(model: model, subject: subject, info: currentSubject)
             VStack(spacing: 10) {
                 SourceRow(model: model) { showsSourcePicker = true }
                 DanmakuRow(model: model) { showsDanmakuSources = true }
-                CommentsRow(model: comments, isExpanded: commentsExpanded) {
-                    withAnimation(.smooth(duration: 0.35)) { commentsExpanded.toggle() }
-                }
             }
         }
+    }
+
+    /// 评论标签上的数量.
+    private var commentsCaption: String? {
+        guard let comments, !comments.items.isEmpty else { return nil }
+        return comments.reachedEnd ? "\(comments.items.count)" : "\(comments.items.count)+"
     }
 
     @ViewBuilder
@@ -169,8 +176,10 @@ struct EpisodePlayerPage: View {
             canEditWatched: services.isLoggedIn,
             onSetWatched: setWatched,
         )
-        if !recommendations.isEmpty {
-            RelatedSection(items: recommendations)
+        // 只显示站内条目; 没有条目 id 的推荐是指向站外的推广内容, 不显示
+        let related = recommendations.filter { $0.subjectId != nil }
+        if !related.isEmpty {
+            RelatedSection(items: related)
         }
     }
 
@@ -239,8 +248,8 @@ private struct InlinePlayer: View {
         .onChange(of: model.isPlaying) { _, playing in
             if playing { scheduleHide() }
         }
-        .onChange(of: model.isMenuOpen) { _, open in
-            if !open { scheduleHide() }
+        .onChange(of: model.menuCloseCount) {
+            scheduleHide()
         }
     }
 
@@ -954,11 +963,9 @@ private struct EpisodeGridSheet: View {
 
 // MARK: - 相关推荐
 
-/// 「相关推荐」: 横向滚动的竖版封面. 站内条目进入条目详情, 其他推荐打开外部链接.
+/// 「相关推荐」: 横向滚动的竖版封面, 点按进入条目详情.
 private struct RelatedSection: View {
     let items: [AniRecommendation]
-
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -971,9 +978,6 @@ private struct RelatedSection: View {
                                 poster(item)
                             }
                             .buttonStyle(.plain)
-                        } else if let uri = item.uri, let url = URL(string: uri) {
-                            Button { openURL(url) } label: { poster(item) }
-                                .buttonStyle(.plain)
                         }
                     }
                 }
@@ -1004,48 +1008,61 @@ private struct RelatedSection: View {
 
 // MARK: - 评论
 
-/// 评论入口: 收起时显示最新一条评论的摘要, 点按展开; 展开时点按收起.
-private struct CommentsRow: View {
-    let model: CommentsModel?
-    let isExpanded: Bool
-    let action: () -> Void
+/// 播放页内容的两页.
+private enum PageTab: Hashable {
+    case details, comments
+}
+
+/// 视频下方的「详情 / 评论」标签; 选中的标签下有强调色横条, 随切换滑动.
+private struct PageTabBar: View {
+    @Binding var selection: PageTab
+    let commentsCaption: String?
+
+    @Namespace private var indicator
 
     var body: some View {
-        SelectorRow(caption: caption, title: title, action: action) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.12))
-                .overlay {
-                    Image(systemName: "text.bubble")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.tint)
+        HStack(spacing: 24) {
+            item("详情", tab: .details)
+            item("评论", caption: commentsCaption, tab: .comments)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .background(alignment: .bottom) { Divider() }
+    }
+
+    private func item(_ title: String, caption: String? = nil, tab: PageTab) -> some View {
+        let selected = selection == tab
+        return Button {
+            withAnimation(.smooth(duration: 0.3)) { selection = tab }
+        } label: {
+            VStack(spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(title)
+                        .font(.body.weight(selected ? .semibold : .regular))
+                    if let caption {
+                        Text(caption)
+                            .font(.caption.monospacedDigit())
+                    }
                 }
-        } trailing: {
-            Image(systemName: "chevron.down")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .foregroundStyle(selected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                ZStack {
+                    if selected {
+                        Capsule()
+                            .fill(.tint)
+                            .matchedGeometryEffect(id: "indicator", in: indicator)
+                    }
+                }
+                .frame(width: 22, height: 3)
+            }
+            .contentShape(.rect)
         }
-        .accessibilityHint(isExpanded ? "收起评论" : "展开评论")
-    }
-
-    private var caption: String {
-        guard let model, !model.items.isEmpty else { return "评论" }
-        return model.reachedEnd ? "评论 · \(model.items.count) 条" : "评论 · \(model.items.count)+ 条"
-    }
-
-    private var title: String {
-        if isExpanded { return "收起评论" }
-        guard let model else { return "加载中" }
-        if let first = model.items.first {
-            let name = first.authorName.isEmpty ? "匿名" : first.authorName
-            return "\(name): \(first.text.replacingOccurrences(of: "\n", with: " "))"
-        }
-        if model.isLoading { return "加载中" }
-        return model.errorMessage == nil ? "还没有评论, 来说两句" : "评论加载失败, 点按重试"
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
-/// 展开后的评论列表: 占满剩余高度, 滚动到底部时加载更多; 底部是评论框 (未登录时提示登录).
+/// 评论页: 占满剩余高度, 滚动到底部时加载更多; 底部是评论框 (未登录时提示登录).
 private struct EpisodeCommentList: View {
     let model: CommentsModel
     @Environment(AppServices.self) private var services

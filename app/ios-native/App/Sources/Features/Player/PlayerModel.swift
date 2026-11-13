@@ -48,11 +48,18 @@ final class PlayerModel {
     /// 是否在画面上显示播放信息.
     var showsStats = false
     /// 已展开的控件菜单数量; 有菜单展开时控件保持显示.
-    private var openMenuCount = 0
+    /// 不参与界面观察: 菜单展开时修改它不会让菜单所在的视图重绘.
+    @ObservationIgnored private var openMenuCount = 0
     var isMenuOpen: Bool { openMenuCount > 0 }
+    /// 每当所有菜单都关闭时加一; 控件据此重新开始自动隐藏的计时.
+    private(set) var menuCloseCount = 0
 
     func menuDidOpen() { openMenuCount += 1 }
-    func menuDidClose() { openMenuCount = max(0, openMenuCount - 1) }
+
+    func menuDidClose() {
+        openMenuCount = max(0, openMenuCount - 1)
+        if openMenuCount == 0 { menuCloseCount += 1 }
+    }
     /// 当前正在播放的地址; 外部链接使用其中的原始播放地址.
     private(set) var playable: AniPlayable?
     /// 画面填充屏幕 (裁切边缘); 为 `false` 时完整显示画面.
@@ -515,9 +522,12 @@ final class PlayerModel {
         let playing = player.hasMedia && !player.isPaused
         if playing != isPlaying { onPlayingChanged(playing) }
         guard phase == .playing, player.hasMedia else { return }
-        currentTime = player.position.isFinite ? player.position : 0
-        duration = player.duration.isFinite ? player.duration : 0
-        networkSpeed = player.cacheSpeed
+        // mpv 每帧都报告位置; 界面只显示到秒, 位置变化不足 0.25 秒时不更新, 避免控件 (包括展开中的菜单) 每帧重绘
+        let position = player.position.isFinite ? player.position : 0
+        if abs(position - currentTime) >= 0.25 { currentTime = position }
+        let newDuration = player.duration.isFinite ? player.duration : 0
+        if newDuration != duration { duration = newDuration }
+        if player.cacheSpeed != networkSpeed { networkSpeed = player.cacheSpeed }
         if isPlaying {
             reportProgress()
             loadSkipSegmentsIfNeeded()

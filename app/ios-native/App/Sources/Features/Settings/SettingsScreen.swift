@@ -6,10 +6,23 @@ struct SettingsScreen: View {
     @Environment(AppServices.self) private var services
     @State private var errorMessage: String?
 
+    @AppStorage(RootTab.launchTabKey) private var launchTab = RootTab.collection
+
     private var store: AniSettingsStore { services.core.settings }
 
     var body: some View {
         Form {
+            Section {
+                Picker("启动时打开", selection: $launchTab) {
+                    ForEach(RootTab.allCases) { tab in
+                        Text(tab.title).tag(tab)
+                    }
+                }
+            } header: {
+                Text("通用")
+            } footer: {
+                Text("下次启动 App 时生效.")
+            }
             if let settings = services.settings {
                 sourceSection(settings)
                 playbackSection(settings)

@@ -8,6 +8,8 @@ import SwiftUI
 struct PlayerScreen: View {
     @Environment(AppServices.self) private var services
     let model: PlayerModel
+    /// 是否持有画面. 退出全屏时先变为 `false`, 淡出期间画面已交还内嵌播放器.
+    var ownsVideo = true
     /// 退出全屏, 回到竖屏播放页.
     let onExitFullscreen: () -> Void
     /// 关闭播放页 (而不只是退出全屏).
@@ -23,7 +25,7 @@ struct PlayerScreen: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            PlayerSurface(player: model.player)
+            PlayerSurface(player: model.player, isActive: ownsVideo)
             .ignoresSafeArea()
 
             DanmakuOverlay(
@@ -129,8 +131,8 @@ struct PlayerScreen: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.pendingSkip?.name)
         .task { scheduleHideControls() }
-        .onChange(of: model.isMenuOpen) { _, open in
-            if !open { scheduleHideControls() }
+        .onChange(of: model.menuCloseCount) {
+            scheduleHideControls()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             // 横持过手机之后再竖过来, 即退出全屏回到播放页; 锁定时不响应

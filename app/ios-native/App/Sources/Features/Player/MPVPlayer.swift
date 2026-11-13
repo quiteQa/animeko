@@ -400,6 +400,7 @@ final class MPVVideoView: UIView {
     private func updateDrawableSize() {
         let scale = metalLayer.contentsScale
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        guard window != nil else { return }
         if size.width > 1, size.height > 1, size != lastDrawableSize {
             lastDrawableSize = size
             metalLayer.drawableSize = size

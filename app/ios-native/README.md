@@ -136,7 +136,7 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 | 搜索 | 系统搜索栏, 分页 | `AniSubjectSearchService` |
 | 条目详情 | 收藏状态菜单, 继续观看, 剧集左滑 / 长按标记看过 | `SetSubjectCollectionTypeOrDeleteUseCase`, `EpisodeCollectionRepository` |
 | 播放 | mpv 内核 (可播放 MKV 等 AVPlayer 不支持的容器), 自动选源, 续播上次位置, 每 5 秒及暂停/退出时保存进度, 看到 90% 自动标记看过, HLS 去广告, 后台只保留声音 | 选源用例, `MediaResolver`, `EpisodePlayHistoryRepository`, `HlsPlaybackPreparer`, 标记规则同 `MarkAsWatchedExtension` |
-| 播放页 | 自上而下: 视频, 标题与收藏 / 评分 / 开播时间, 播放源 (折叠, 点按选源), 弹幕源 (折叠, 点按按源开关弹幕), 评论 (折叠; 展开后占满下方并单独滚动, 底部评论框), 横向剧照剧集列表 (长按标记看过) 与全部剧集网格, 相关推荐; 跟随系统深浅色; 全屏时 iPhone 自动横屏 | `SubjectCollectionRepository`, `GetSubjectRecommendationUseCase`, `DanmakuInfo.serviceId` |
+| 播放页 | 视频固定在顶部, 下方「详情 / 评论」两页左右滑动切换. 详情: 标题与收藏 / 评分 / 开播时间, 播放源 (折叠, 点按选源), 弹幕源 (折叠, 点按按源开关弹幕), 横向剧照剧集列表 (长按标记看过) 与全部剧集网格, 相关推荐 (只显示站内条目, 不显示站外推广). 评论: 单独滚动, 底部评论框. 从左边缘右滑返回; 跟随系统深浅色; 全屏时 iPhone 自动横屏 | `SubjectCollectionRepository`, `GetSubjectRecommendationUseCase`, `DanmakuInfo.serviceId` |
 | 画质增强 / 播放信息 / 外部链接 | 更多选项菜单中切换画质增强 (性能优先: 去色带; 最高质量: 去色带 + ewa_lanczossharp 缩放; 默认档位可在设置中修改), 显示播放信息 (mpv 解码方式, 分辨率, 帧率, 编码, 码率, 实时输入, 缓冲, 丢帧), 复制或访问视频流链接与数据源页面 | 上游 `PlayerStatsOverlay`, `ShareEpisodeDropdown` 的行为 |
 | 全屏播放 | 横屏玻璃控件: 顶部网速 / 标题 / 时间 / 电量; 关闭播放页, 画面填充 / 适应, 切换竖屏; 选集; 截图 (mpv `screenshot-to-file`, 保存到相册), 锁定; 倍速加减; 底栏上一集 / 播放 / 下一集 / 跳过 OP/ED / 进度 / 设置菜单 (一起看, 画质增强, 弹幕设置, 切换播放源, 播放信息, 外部链接, 下载) | `PHPhotoLibrary` |
 | 一起看 | 输入房间名与密码加入或创建房间, 成员列表与在线状态, 跟随房主; 房主与跟随者首次加载后暂停等待房主, 位置相差超过 3 秒时自动校正并同步速度与播放状态; 房主切换剧集时同条目内自动切换, 换条目时提示前往 | `WatchTogetherManager`, `LocalPlaybackBridge`, 同步规则同上游 `WatchTogetherPlayerExtension` |
