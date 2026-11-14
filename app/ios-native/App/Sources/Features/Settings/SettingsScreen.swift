@@ -155,7 +155,7 @@ struct SettingsScreen: View {
 }
 
 /// 数据源列表: 启用或停用. 数据源由订阅自动维护, 这里不增删.
-private struct MediaSourcesScreen: View {
+struct MediaSourcesScreen: View {
     @Environment(AppServices.self) private var services
     @State private var sources: [AniMediaSourceItem] = []
 
@@ -187,7 +187,7 @@ private struct MediaSourcesScreen: View {
     }
 }
 
-private struct DanmakuFiltersScreen: View {
+struct DanmakuFiltersScreen: View {
     @Environment(AppServices.self) private var services
     @State private var filters: [AniDanmakuFilter] = []
     @State private var newRegex = ""

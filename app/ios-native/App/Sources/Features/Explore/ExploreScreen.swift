@@ -114,7 +114,32 @@ private struct ScheduleView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        // 列表作为页面的主滚动视图, 导航栏据此使用滚动边缘效果 (没有底部分割线);
+        // 日期条作为列表顶部的栏, 列表滚到它下方时同样由滚动边缘效果过渡
+        List(currentDay?.items ?? [], id: \.episodeId) { item in
+            NavigationLink(value: SubjectRoute(id: item.subjectId, name: item.subjectName, imageUrl: item.imageUrl)) {
+                ScheduleRow(item: item)
+            }
+            .listRowInsets(ScheduleRow.insets)
+            // 分隔线与行内容同宽: 起止于左右内边距处, 不随内容变化
+            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+            .alignmentGuide(.listRowSeparatorTrailing) { dimensions in dimensions.width }
+        }
+        .listStyle(.plain)
+        // 底部悬浮的标签栏 (含最小化后的悬浮按钮) 之上再留出空间, 最后一项能完整滚动到它上方
+        .contentMargins(.bottom, ScheduleRow.floatingBarClearance, for: .scrollContent)
+        .overlay {
+            if model.schedule.isEmpty {
+                if let message = model.scheduleError {
+                    ContentUnavailableView("加载失败", systemImage: "calendar.badge.exclamationmark", description: Text(message))
+                } else {
+                    ProgressView()
+                }
+            } else if currentDay?.items.isEmpty == true {
+                ContentUnavailableView("这天没有放送", systemImage: "calendar")
+            }
+        }
+        .safeAreaBar(edge: .top, spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -133,30 +158,6 @@ private struct ScheduleView: View {
                     .padding(.vertical, 8)
                 }
                 .onAppear { proxy.scrollTo(Self.today, anchor: .center) }
-            }
-
-            List(currentDay?.items ?? [], id: \.episodeId) { item in
-                NavigationLink(value: SubjectRoute(id: item.subjectId, name: item.subjectName, imageUrl: item.imageUrl)) {
-                    ScheduleRow(item: item)
-                }
-                .listRowInsets(ScheduleRow.insets)
-                // 分隔线与行内容同宽: 起止于左右内边距处, 不随内容变化
-                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-                .alignmentGuide(.listRowSeparatorTrailing) { dimensions in dimensions.width }
-            }
-            .listStyle(.plain)
-            // 底部悬浮的标签栏 (含最小化后的悬浮按钮) 之上再留出空间, 最后一项能完整滚动到它上方
-            .contentMargins(.bottom, ScheduleRow.floatingBarClearance, for: .scrollContent)
-            .overlay {
-                if model.schedule.isEmpty {
-                    if let message = model.scheduleError {
-                        ContentUnavailableView("加载失败", systemImage: "calendar.badge.exclamationmark", description: Text(message))
-                    } else {
-                        ProgressView()
-                    }
-                } else if currentDay?.items.isEmpty == true {
-                    ContentUnavailableView("这天没有放送", systemImage: "calendar")
-                }
             }
         }
     }

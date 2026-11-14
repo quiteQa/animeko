@@ -63,6 +63,8 @@ struct EpisodePlayerPage: View {
                 .tag(PageTab.comments)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            // 两页延伸到屏幕底部; 页内的滚动内容与评论框仍按底部安全区留出空间
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .background(Color(.systemGroupedBackground))
         .toolbar(.hidden, for: .navigationBar)
@@ -176,8 +178,8 @@ struct EpisodePlayerPage: View {
             canEditWatched: services.isLoggedIn,
             onSetWatched: setWatched,
         )
-        // 只显示站内条目; 没有条目 id 的推荐是指向站外的推广内容, 不显示
-        let related = recommendations.filter { $0.subjectId != nil }
+        // 只显示站内条目. 带站外链接 (uri) 的推荐是推广位 (上游点按时打开浏览器), 即使带条目 id 也不显示
+        let related = recommendations.filter { $0.subjectId != nil && $0.uri == nil }
         if !related.isEmpty {
             RelatedSection(items: related)
         }

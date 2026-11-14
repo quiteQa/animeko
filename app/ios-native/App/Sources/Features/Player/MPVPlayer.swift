@@ -31,10 +31,6 @@ final class MPVPlayer: @unchecked Sendable {
     /// libmpv 唤醒回调持有的上下文. 只弱引用播放器, 播放器释放后回调不再访问它.
     private var wakeupTarget: Unmanaged<WakeupTarget>?
     private let queue = DispatchQueue(label: "me.him188.ani.native.mpv", qos: .userInitiated)
-    /// 画面大小变化后的防抖任务 (主线程).
-    private var resizeWork: DispatchWorkItem?
-    /// 为通知 mpv 画面大小而临时设置了裁切, 等 mpv 重新配置输出后恢复 (只在 `queue` 上访问).
-    private var restoresCropAfterReconfig = false
 
     private enum Property: UInt64, CaseIterable {
         case timePos = 1, duration, pause, pausedForCache, eofReached, speed, idleActive, cacheSpeed
@@ -123,7 +119,6 @@ final class MPVPlayer: @unchecked Sendable {
             guard let context else { return }
             Unmanaged<WakeupTarget>.fromOpaque(context).takeUnretainedValue().player?.drainEvents()
         }, target.toOpaque())
-        videoView.onDrawableSizeChange = { [weak self] in self?.surfaceDidResize() }
         Diagnostics.log("mpv: 已就绪")
     }
 
@@ -198,6 +193,7 @@ final class MPVPlayer: @unchecked Sendable {
     /// `true` 时画面放大填满 (裁切边缘), 否则完整显示.
     func setFillsScreen(_ fills: Bool) {
         setDouble("panscan", fills ? 1 : 0)
+        videoView.fillsContainer = fills
     }
 
     /// 画质增强档位: 0 关闭, 1 性能优先 (去色带), 2 最高质量 (高质量缩放 + 去色带).
@@ -231,35 +227,6 @@ final class MPVPlayer: @unchecked Sendable {
         guard let handle else { return nil }
         var value = 0.0
         return mpv_get_property(handle, name, MPV_FORMAT_DOUBLE, &value) >= 0 ? value : nil
-    }
-
-    // MARK: - 画面大小
-
-    /// 画面视图大小变化 (内嵌与全屏切换, 旋转). 布局过程中会连续变化多次, 稳定后再通知 mpv.
-    private func surfaceDidResize() {
-        resizeWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.reconfigureOutput() }
-        resizeWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
-    }
-
-    /// 让 mpv 按图层当前的 drawableSize 重新配置输出.
-    ///
-    /// MPVKit 的 moltenvk 上下文只在视频输出重新配置时读取图层大小, 没有大小变化的通知;
-    /// 输出只在画面参数变化时重新配置. 这里把画面底部临时裁掉 2 像素使参数变化, mpv 重新配置后
-    /// (`MPV_EVENT_VIDEO_RECONFIG`) 立即恢复为不裁切.
-    private func reconfigureOutput() {
-        queue.async { [weak self] in
-            guard let self, let handle = self.handle else { return }
-            var width: Int64 = 0
-            var height: Int64 = 0
-            guard mpv_get_property(handle, "video-params/w", MPV_FORMAT_INT64, &width) >= 0,
-                  mpv_get_property(handle, "video-params/h", MPV_FORMAT_INT64, &height) >= 0,
-                  width > 16, height > 16 else { return }
-            Diagnostics.log("mpv: 画面大小变化, 重新配置输出 (视频 \(width)x\(height))")
-            self.restoresCropAfterReconfig = true
-            mpv_set_property_string(handle, "video-crop", "\(width)x\(height - 2)+0+0")
-        }
     }
 
     // MARK: - libmpv 调用
@@ -321,12 +288,6 @@ final class MPVPlayer: @unchecked Sendable {
                         Diagnostics.log("mpv[\(prefix)] \(text.trimmingCharacters(in: .newlines))")
                     }
                     continue
-                case MPV_EVENT_VIDEO_RECONFIG:
-                    if self.restoresCropAfterReconfig {
-                        self.restoresCropAfterReconfig = false
-                        mpv_set_property_string(handle, "video-crop", "")
-                    }
-                    continue
                 case MPV_EVENT_END_FILE:
                     guard let end = event.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee else { continue }
                     if end.reason == MPV_END_FILE_REASON_ERROR {
@@ -367,19 +328,33 @@ final class MPVPlayer: @unchecked Sendable {
 }
 
 /// 承载 mpv 画面的视图, 其图层就是 mpv 渲染的 `CAMetalLayer`.
+///
+/// 视图大小固定为 `canvasSize`, 由所在的容器用缩放变换放进自己的大小 (见 `PlayerSurface`).
+/// MPVKit 的 moltenvk 输出只在 mpv 重新配置视频输出时读取图层大小, 重新配置会清掉当前画面;
+/// 图层大小不变, 内嵌与全屏切换, 旋转时都不需要 mpv 重新配置, 画面不会闪黑, 缩放随旋转动画平滑进行.
 final class MPVVideoView: UIView {
+    /// 画布大小 (点). 16:9, 宽度不小于 iPhone 横屏宽度, 全屏时按屏幕像素清晰显示.
+    static let canvasSize = CGSize(width: 960, height: 540)
+
     override class var layerClass: AnyClass { MPVMetalLayer.self }
 
     var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
-    /// drawableSize 变化后调用 (主线程).
-    var onDrawableSizeChange: (() -> Void)?
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    /// 为 `true` 时容器按填满缩放 (裁切超出部分), 否则完整显示.
+    var fillsContainer = false {
+        didSet {
+            guard fillsContainer != oldValue else { return }
+            superview?.setNeedsLayout()
+        }
+    }
+
+    init() {
+        super.init(frame: CGRect(origin: .zero, size: Self.canvasSize))
         backgroundColor = .black
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
         isUserInteractionEnabled = false
+        updateDrawableSize()
     }
 
     @available(*, unavailable)
@@ -387,28 +362,16 @@ final class MPVVideoView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        metalLayer.contentsScale = window?.screen.nativeScale ?? traitCollection.displayScale
+        guard let window else { return }
+        metalLayer.contentsScale = window.screen.nativeScale
         updateDrawableSize()
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        updateDrawableSize()
-    }
-
-    /// 视图大小改变 (内嵌与全屏切换, 旋转) 时更新 drawableSize 并通知播放器, 由它让 mpv 按新的大小输出.
     private func updateDrawableSize() {
         let scale = metalLayer.contentsScale
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
-        guard window != nil else { return }
-        if size.width > 1, size.height > 1, size != lastDrawableSize {
-            lastDrawableSize = size
-            metalLayer.drawableSize = size
-            onDrawableSizeChange?()
-        }
+        if metalLayer.drawableSize != size { metalLayer.drawableSize = size }
     }
-
-    private var lastDrawableSize = CGSize.zero
 }
 
 /// MoltenVK 会把 drawableSize 临时设为 1×1 强制完成呈现, 导致闪烁; 忽略这种尺寸

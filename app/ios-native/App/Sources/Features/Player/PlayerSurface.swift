@@ -31,6 +31,7 @@ struct PlayerSurface: UIViewRepresentable {
         init(video: UIView) {
             self.video = video
             super.init(frame: .zero)
+            clipsToBounds = true
         }
 
         @available(*, unavailable)
@@ -47,11 +48,25 @@ struct PlayerSurface: UIViewRepresentable {
         }
 
         private func attachIfNeeded() {
-            guard isActive, window != nil, video.superview !== self else { return }
-            video.removeFromSuperview()
-            video.frame = bounds
-            video.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            addSubview(video)
+            guard isActive, window != nil else { return }
+            if video.superview !== self {
+                video.removeFromSuperview()
+                addSubview(video)
+            }
+            fitVideo()
+        }
+
+        /// 画面视图大小固定, 按容器大小缩放后居中: 完整显示时取较小的缩放比例, 填满时取较大的.
+        private func fitVideo() {
+            let canvas = MPVVideoView.canvasSize
+            guard bounds.width > 0, bounds.height > 0 else { return }
+            let widthRatio = bounds.width / canvas.width
+            let heightRatio = bounds.height / canvas.height
+            let fills = (video as? MPVVideoView)?.fillsContainer == true
+            let scale = fills ? max(widthRatio, heightRatio) : min(widthRatio, heightRatio)
+            video.bounds = CGRect(origin: .zero, size: canvas)
+            video.center = CGPoint(x: bounds.midX, y: bounds.midY)
+            video.transform = CGAffineTransform(scaleX: scale, y: scale)
         }
     }
 }
