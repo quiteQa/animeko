@@ -1,0 +1,66 @@
+# XcodeGen 工程定义. 生成 Xcode 工程: `xcodegen generate && pod install`, 然后打开 AnimekoNative.xcworkspace.
+# 完整步骤见 ../README.md.
+name: AnimekoNative
+options:
+  bundleIdPrefix: me.him188.ani.native
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+# 播放内核 libmpv (MPVKit 的 LGPL 构建). 版本固定, 只在需要时升级.
+packages:
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit
+    exactVersion: 1.1.0-n9.0.2
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  AnimekoNative:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Animeko
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        # 播放器截图保存到相册
+        NSPhotoLibraryAddUsageDescription: 将播放器截图保存到相册
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        # 网页数据源与自建媒体库常见 http 地址
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: me.him188.ani.native.app
+        TARGETED_DEVICE_FAMILY: "1,2"
+    # AniCore 由 CocoaPods 集成 (见 Podfile); MediampFFmpegKit 由 Gradle 解压, 是 AniCore 依赖的动态 framework (FFmpeg 8),
+    # 只随 App 嵌入, 不链接到 App 本身: App 静态链接 MPVKit 自带的 FFmpeg, 若同时链接 MediampFFmpegKit,
+    # 链接器会把 mpv 的部分 FFmpeg 符号解析到 MediampFFmpegKit, mpv 检测到版本不一致后在 mpv_initialize 中退出.
+    dependencies:
+      - framework: ../../../utils/http-downloader/build/mediamp-ffmpeg/apple-runtime/MediampFFmpegKit.xcframework
+        embed: true
+        link: false
+      - package: MPVKit
+        product: MPVKit
+  AnimekoNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+      - path: Sources/Features/Danmaku/DanmakuTrackAllocator.swift
+    dependencies: []
+schemes:
+  AnimekoNative:
+    build:
+      targets:
+        AnimekoNative: all
+        AnimekoNativeTests: [test]
+    test:
+      targets:
+        - AnimekoNativeTests

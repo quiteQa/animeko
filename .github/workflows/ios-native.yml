@@ -1,0 +1,189 @@
+# SwiftUI 原生 iOS 客户端 (app/ios-native) 的未签名 IPA 构建.
+# 手写的独立 workflow, 不由 src.main.kts 生成.
+# 产物未签名, 需要用 SideStore / AltStore 等工具用自己的 Apple ID 重签后安装.
+
+name: 'iOS Native IPA'
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+    - 'claude/**'
+    paths:
+    - 'app/ios-native/**'
+    - '!app/ios-native/libtorrent/**'
+    - '.github/workflows/ios-native.yml'
+concurrency:
+  # 手动触发与推送触发分属不同的组: 手动构建不会取消正在进行的推送构建, 反之亦然
+  group: 'ios-native-${{ github.ref_name }}-${{ github.event_name }}'
+  cancel-in-progress: true
+jobs:
+  build-ipa:
+    name: 'Build unsigned IPA'
+    runs-on: 'macos-26'
+    timeout-minutes: 150
+    permissions:
+      contents: 'read'
+    env:
+      JBR_FILE: 'jbrsdk_jcef-21.0.11-osx-aarch64-b1163.125.tar.gz'
+    steps:
+    - uses: 'actions/checkout@v6'
+      with:
+        submodules: 'recursive'
+
+    - name: 'Free space'
+      continue-on-error: true
+      run: 'chmod +x ./ci-helper/free-space-macos.sh && ./ci-helper/free-space-macos.sh'
+
+    - name: 'Configure local.properties'
+      run: |
+        rm -f local.properties
+        echo "ani.enable.ios=true" >> local.properties
+        echo "ani.build.framework=true" >> local.properties
+        echo "kotlin.native.ignoreDisabledTargets=true" >> local.properties
+
+    - name: 'Download JBR 21'
+      run: |
+        url="https://cache-redirector.jetbrains.com/intellij-jbr/$JBR_FILE"
+        wget -q --tries=3 -O "$RUNNER_TEMP/$JBR_FILE" "$url"
+        wget -q --tries=3 -O "$RUNNER_TEMP/jbr.checksum" "$url.checksum"
+        expected=$(awk '{print $1}' "$RUNNER_TEMP/jbr.checksum")
+        actual=$(shasum -a 512 "$RUNNER_TEMP/$JBR_FILE" | awk '{print $1}')
+        test "$expected" = "$actual"
+
+    # 直接解压 JBR 并设置 JAVA_HOME, 不依赖第三方 setup-java action
+    - name: 'Setup JBR 21'
+      run: |
+        mkdir -p "$RUNNER_TEMP/jbr"
+        tar -xzf "$RUNNER_TEMP/$JBR_FILE" -C "$RUNNER_TEMP/jbr"
+        home=$(dirname "$(find "$RUNNER_TEMP/jbr" -path '*/Contents/Home/bin/java' -type f | head -1)")
+        home=$(dirname "$home")
+        test -x "$home/bin/java"
+        echo "JAVA_HOME=$home" >> "$GITHUB_ENV"
+        echo "$home/bin" >> "$GITHUB_PATH"
+
+    - name: 'Show toolchain'
+      run: |
+        xcodebuild -version
+        java -version
+        pod --version
+        df -h
+
+    # Maven Central 对 CI 出口会限流 (429) 或把大文件重定向到 GitHub Releases, 后者不可用时整个构建在编译前失败.
+    # 优先使用 Google 的 Maven Central 镜像; 对 Xcode 构建阶段调用的 Gradle 同样生效.
+    - name: 'Prefer Maven Central mirror'
+      run: |
+        mkdir -p ~/.gradle/init.d
+        cat > ~/.gradle/init.d/central-mirror.init.gradle.kts <<'EOF'
+        val mirrorUrl = "https://maven-central.storage-download.googleapis.com/maven2/"
+
+        fun RepositoryHandler.preferMirror() {
+            if (none { it is MavenArtifactRepository && it.url.toString() == mirrorUrl }) {
+                val repo = maven { url = uri(mirrorUrl); name = "CentralMirror" }
+                remove(repo)
+                addFirst(repo)
+            }
+        }
+
+        settingsEvaluated {
+            if (pluginManagement.repositories.isEmpty()) pluginManagement.repositories.gradlePluginPortal()
+            pluginManagement.repositories.preferMirror()
+            dependencyResolutionManagement.repositories.preferMirror()
+        }
+        EOF
+
+    # Gradle 发行包托管在 GitHub Releases, 该服务超时时 wrapper 直接失败.
+    # 先带重试地下载并校验发行包 (依次尝试多个镜像), 再让 wrapper 从本地文件安装.
+    - name: 'Download Gradle distribution'
+      run: |
+        url=$(sed -n 's/^distributionUrl=//p' gradle/wrapper/gradle-wrapper.properties | sed 's/\\:/:/')
+        name=$(basename "$url")
+        version=${name#gradle-}; version=${version%-bin.zip}
+        dest="$RUNNER_TEMP/$name"
+        expected=$(curl -fsSL --retry 5 --retry-all-errors "https://downloads.gradle.org/distributions/$name.sha256")
+        for source in "$url" \
+          "https://mirrors.cloud.tencent.com/gradle/$name" \
+          "https://mirrors.aliyun.com/gradle/distributions/v$version/$name"; do
+          echo "Trying $source"
+          if curl -fL --retry 4 --retry-all-errors --retry-delay 10 --connect-timeout 20 -o "$dest" "$source" \
+            && echo "$expected  $dest" | shasum -a 256 -c -; then
+            sed -i '' "s|^distributionUrl=.*|distributionUrl=file\\\\:$dest|" gradle/wrapper/gradle-wrapper.properties
+            grep distributionUrl gradle/wrapper/gradle-wrapper.properties
+            exit 0
+          fi
+        done
+        echo "All Gradle distribution sources failed" >&2
+        exit 1
+
+    # pod install 要求 AniCore.framework 已存在, 先生成占位 framework; 真正的 framework 在 xcodebuild 时编译
+    - name: 'Prepare FFmpeg runtime and AniCore podspec'
+      run: >-
+        ./gradlew
+        :utils:http-downloader:extractMediampFfmpegAppleRuntime
+        :app:ios-native:core:podspec
+        :app:ios-native:core:generateDummyFramework
+        "-Dorg.gradle.jvmargs=-Xmx5g"
+        "-Dkotlin.daemon.jvm.options=-Xmx5g"
+
+    - name: 'Generate Xcode project and install pods'
+      working-directory: 'app/ios-native/App'
+      run: |
+        brew install xcodegen
+        xcodegen generate
+        pod install
+
+    - name: 'Archive (unsigned)'
+      working-directory: 'app/ios-native/App'
+      # CocoaPods 的脚本阶段在这里调用 Gradle 编译并链接 AniCore
+      run: >-
+        set -o pipefail &&
+        xcodebuild archive
+        -workspace AnimekoNative.xcworkspace
+        -scheme AnimekoNative
+        -configuration Debug
+        -sdk iphoneos
+        -destination 'generic/platform=iOS'
+        -archivePath "$RUNNER_TEMP/AnimekoNative.xcarchive"
+        CODE_SIGNING_ALLOWED=NO
+        CODE_SIGNING_REQUIRED=NO
+        CODE_SIGN_IDENTITY=""
+        | tee "$RUNNER_TEMP/xcodebuild.log"
+
+    - name: 'Check FFmpeg linkage'
+      # App 静态链接 MPVKit 的 FFmpeg; MediampFFmpegKit (另一版本的 FFmpeg) 只能由 AniCore 链接
+      run: |
+        app="$RUNNER_TEMP/AnimekoNative.xcarchive/Products/Applications/AnimekoNative.app/AnimekoNative"
+        otool -L "$app"
+        if otool -L "$app" | grep -q MediampFFmpegKit; then
+          echo "::error::App binary links MediampFFmpegKit; mpv would bind to the wrong FFmpeg"
+          exit 1
+        fi
+        if nm -u "$app" | grep -E '^_(avcodec|avformat|avutil|av)_version$'; then
+          echo "::error::App binary imports FFmpeg symbols from a dynamic library"
+          exit 1
+        fi
+
+    - name: 'Package IPA'
+      run: |
+        mkdir -p "$RUNNER_TEMP/ipa/Payload"
+        cp -R "$RUNNER_TEMP/AnimekoNative.xcarchive/Products/Applications/AnimekoNative.app" "$RUNNER_TEMP/ipa/Payload/"
+        (cd "$RUNNER_TEMP/ipa" && zip -qry ../AnimekoNative-unsigned.ipa Payload)
+        ls -lh "$RUNNER_TEMP/AnimekoNative-unsigned.ipa"
+
+    - name: 'Upload IPA'
+      uses: 'actions/upload-artifact@v6'
+      with:
+        name: 'AnimekoNative-unsigned-ipa'
+        path: '${{ runner.temp }}/AnimekoNative-unsigned.ipa'
+        if-no-files-found: 'error'
+
+    - name: 'Show compile errors'
+      if: '${{ failure() }}'
+      run: 'grep -E "(error|fatal error):" "$RUNNER_TEMP/xcodebuild.log" | sort -u | head -200 || true'
+
+    - name: 'Upload build log'
+      if: '${{ failure() }}'
+      uses: 'actions/upload-artifact@v6'
+      with:
+        name: 'xcodebuild-log'
+        path: '${{ runner.temp }}/xcodebuild.log'
+        if-no-files-found: 'ignore'
