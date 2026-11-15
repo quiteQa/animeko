@@ -3,10 +3,12 @@ import CoreVideo
 import Darwin
 import Foundation
 import Libmpv
+import IOSurface
 import OpenGLES
 import OpenGLES.ES3
+import OpenGLES.EAGLIOSurface
 
-/// 控制队列写入, 渲染队列读取; 渲染队列不调用需要 mpv_handle 的 client API.
+/// 控制队列写入, 渲染队列读取; 渲染队列仅调用明确允许的 mpv 时钟查询.
 final class ProbeState: @unchecked Sendable {
     struct Snapshot {
         var generation = UUID()
@@ -49,7 +51,6 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
     private var context: EAGLContext?
     private var renderer: OpaquePointer?
     private var clockHandle: OpaquePointer?
-    private var cache: CVOpenGLESTextureCache?
     private var pool: CVPixelBufferPool?
     private var framebuffer: GLuint = 0
     private var callback: Unmanaged<Callback>?
@@ -87,14 +88,15 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
             throw ProbeFailure("EAGLContext 不可用")
         }
         self.context = context
-        var cache: CVOpenGLESTextureCache?
-        try check(CVOpenGLESTextureCacheCreate(kCFAllocatorDefault, nil, context, nil, &cache), "texture cache")
-        self.cache = cache
+        if let renderer = glGetString(GLenum(GL_RENDERER)) {
+            print("[frame-probe] OpenGL renderer: \(String(cString: renderer))")
+        }
         let attributes: [String: Any] = [
             kCVPixelBufferWidthKey as String: Self.width,
             kCVPixelBufferHeightKey as String: Self.height,
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferOpenGLESCompatibilityKey as String: true,
+            kCVPixelBufferIOSurfaceOpenGLESFBOCompatibilityKey as String: true,
             kCVPixelBufferIOSurfacePropertiesKey as String: [:],
         ]
         try check(CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attributes as CFDictionary, &pool), "pixel buffer pool")
@@ -138,7 +140,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
     }
 
     private func render() {
-        guard let renderer, let clockHandle, let pool, let cache else { return }
+        guard let renderer, let clockHandle, let pool, let context else { return }
         let updates = mpv_render_context_update(renderer)
         guard updates & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
         let snapshot = state.read()
@@ -150,7 +152,6 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
             skip(renderer)
             return
         }
-        CVOpenGLESTextureCacheFlush(cache, 0)
         var pixelBuffer: CVPixelBuffer?
         let limit = [kCVPixelBufferPoolAllocationThresholdKey as String: 3] as CFDictionary
         let allocation = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, pool, limit, &pixelBuffer)
@@ -159,23 +160,36 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
             skip(renderer)
             return
         }
-        var texture: CVOpenGLESTexture?
-        let result = CVOpenGLESTextureCacheCreateTextureFromImage(
-            kCFAllocatorDefault, cache, pixelBuffer, nil, GLenum(GL_TEXTURE_2D), GLint(GL_RGBA),
-            GLsizei(Self.width), GLsizei(Self.height), GLenum(GL_BGRA), GLenum(GL_UNSIGNED_BYTE), 0, &texture
-        )
-        guard result == kCVReturnSuccess, let texture else {
-            fail("CVOpenGLESTextureCacheCreateTextureFromImage: \(result)")
+        guard let surface = CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue() else {
+            fail("pixel buffer 没有 IOSurface")
             skip(renderer)
             return
         }
-        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)
-        glBindTexture(CVOpenGLESTextureGetTarget(texture), CVOpenGLESTextureGetName(texture))
+        var texture: GLuint = 0
+        glGenTextures(1, &texture)
+        glBindTexture(GLenum(GL_TEXTURE_2D), texture)
+        defer {
+            glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)
+            glFramebufferTexture2D(GLenum(GL_FRAMEBUFFER), GLenum(GL_COLOR_ATTACHMENT0), GLenum(GL_TEXTURE_2D), 0, 0)
+            glBindTexture(GLenum(GL_TEXTURE_2D), 0)
+            glDeleteTextures(1, &texture)
+        }
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_MIN_FILTER), GLint(GL_LINEAR))
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_MAG_FILTER), GLint(GL_LINEAR))
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_WRAP_S), GLint(GL_CLAMP_TO_EDGE))
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_WRAP_T), GLint(GL_CLAMP_TO_EDGE))
-        glFramebufferTexture2D(GLenum(GL_FRAMEBUFFER), GLenum(GL_COLOR_ATTACHMENT0), GLenum(GL_TEXTURE_2D), CVOpenGLESTextureGetName(texture), 0)
+        let mapped = context.texImageIOSurface(
+            surface, target: .init(GL_TEXTURE_2D), internalFormat: .init(GL_RGBA),
+            width: UInt32(Self.width), height: UInt32(Self.height),
+            format: .init(GL_BGRA), type: .init(GL_UNSIGNED_BYTE), plane: 0
+        )
+        guard mapped else {
+            fail("EAGL IOSurface texture mapping: GL error \(glGetError())")
+            skip(renderer)
+            return
+        }
+        glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)
+        glFramebufferTexture2D(GLenum(GL_FRAMEBUFFER), GLenum(GL_COLOR_ATTACHMENT0), GLenum(GL_TEXTURE_2D), texture, 0)
         let framebufferStatus = glCheckFramebufferStatus(GLenum(GL_FRAMEBUFFER))
         guard framebufferStatus == GLenum(GL_FRAMEBUFFER_COMPLETE) else {
             fail("OpenGL framebuffer incomplete: \(framebufferStatus)")
@@ -197,8 +211,6 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
         }
         // IOSurface 交给 CoreMedia 前等待 GPU 完成写入; 不进行像素截图或 CPU 回读.
         glFinish()
-        glFramebufferTexture2D(GLenum(GL_FRAMEBUFFER), GLenum(GL_COLOR_ATTACHMENT0), GLenum(GL_TEXTURE_2D), 0, 0)
-        CVOpenGLESTextureCacheFlush(cache, 0)
         guard status >= 0 else { fail("mpv_render_context_render: \(status)"); return }
         if !reportedOutput { print("[frame-probe] first IOSurface frame rendered"); reportedOutput = true }
         let now = CMClockGetTime(CMClockGetHostTimeClock()).seconds
@@ -249,7 +261,6 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
         if framebuffer != 0 { glDeleteFramebuffers(1, &framebuffer) }
         framebuffer = 0
         pool = nil
-        cache = nil
         context = nil
     }
 

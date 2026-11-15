@@ -35,6 +35,7 @@ jobs:
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
       - name: Build the native bridge and test host
+        id: build
         working-directory: app/ios-native/FrameLab
         timeout-minutes: 15
         run: |
@@ -56,6 +57,7 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/FrameBridge.xcresult" \
             CODE_SIGNING_ALLOWED=NO | tee "$RUNNER_TEMP/frame-bridge.log"
       - name: Archive the standalone probe (unsigned)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         working-directory: app/ios-native/FrameLab
         run: |
           set -o pipefail

@@ -14,8 +14,8 @@ AVSampleBufferDisplayLayer
 AVPictureInPictureController
 ```
 
-- client API 与 render API 在独立队列执行, 不在渲染线程调用需要 `mpv_handle` 的 API, 不建立跨队列同步等待。
-- GPU 绘制完成后才交出像素缓冲区; 没有逐帧截图、CPU 像素回读或 AVPlayer 解码。测试会读缓冲区检查上下方向。
+- client API 与 render API 在独立队列执行, 渲染队列仅调用 libmpv 明确标注线程安全的 `mpv_get_time_us` 时钟查询, 不调用其他 client API, 不建立跨队列同步等待。
+- 通过公开的 `EAGLContext.texImageIOSurface` 映射缓冲区的 IOSurface 作为渲染目标。GPU 绘制完成后才交出像素缓冲区; 没有逐帧截图、CPU 像素回读或 AVPlayer 解码。测试会读缓冲区检查上下方向。
 - 输入只接受本地文件。BT、网络供流与 VOD 媒体时间轴映射不在此实验内。
 - 先读取编码层色彩与 DV 配置, 再核对 mpv 解码参数; 不把 mpv 推断的默认色彩当作源文件声明。明确的 SDR 白名单; HDR10、HLG、Dolby Vision 和未知色彩信息不进入 BGRA8 输出。主客户端的高位深/DV 要求保持阻塞。
 - 当前 MPVKit 在 iOS 上禁用 VideoToolbox/OpenGL 互操作, 因此实验使用 `videotoolbox-copy`。它不能作为零复制、4K HDR 或低功耗达标的证据。
@@ -32,7 +32,7 @@ xcodebuild test -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO
 ```
 
-`.github/workflows/ios-frame-lab.yml` 自动选择可用 iPhone 模拟器, 验证真实 mpv 解码输出的像素方向、时间戳、三缓冲区背压和 HDR 拦截。测试通过后归档未签名 FrameLab IPA, 供个人设备侧载验证。
+`.github/workflows/ios-frame-lab.yml` 自动选择可用 iPhone 模拟器, 验证真实 mpv 解码输出的像素方向、时间戳、三缓冲区背压和 HDR 拦截。原生编译通过后归档未签名 FrameLab IPA, 供个人设备侧载验证; 运行测试失败仍会使 workflow 失败, 归档产物不代表能力验证通过。
 
 启动 App 后打开本地 SDR 样本, 检查接收帧数持续增加, 再手动启动系统画中画。HDR 样本必须显示拦截原因且不输出视频帧。
 
@@ -53,6 +53,8 @@ ffmpeg -f lavfi -i 'color=c=red:s=160x90:r=24:d=3,drawbox=x=0:y=45:w=160:h=45:co
 ffmpeg -f lavfi -i 'color=c=white:s=160x90:r=24:d=1' -c:v libx265 -threads 1 \
   -x265-params 'pools=1:frame-threads=1:log-level=error:colorprim=9:transfer=16:colormatrix=9:hdr10=1:repeat-headers=1' \
   -pix_fmt yuv420p10le -color_primaries 9 -color_trc 16 -colorspace 9 -tag:v hvc1 -movflags +faststart hdr10-pattern.mp4
+ffmpeg -f lavfi -i 'color=c=gray:s=160x90:r=24:d=1' -c:v libx264 -threads 1 \
+  -pix_fmt yuv420p -movflags +faststart unknown-color.mp4
 ```
 
 ## 后续关卡
