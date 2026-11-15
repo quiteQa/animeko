@@ -58,6 +58,24 @@ struct PlaybackSupportTests {
         #expect(scope.invalidate().isEmpty)
     }
 
+    @Test func permanentCloseRejectsLateWorkAndNewOperations() async {
+        let scope = PlaybackTaskScope()
+        let gate = Gate()
+        var published = false
+        scope.run { token in
+            await gate.wait()
+            if scope.accepts(token) { published = true }
+        }
+        await gate.waitUntilEntered()
+        let tasks = scope.close()
+        scope.run { _ in published = true }
+        gate.open()
+        for task in tasks { await task.value }
+        #expect(!published)
+        #expect(!scope.accepts(scope.token))
+        #expect(scope.close().isEmpty)
+    }
+
     @Test func slowWriterCoalescesReportsAndFlushesFinalPosition() async {
         let gate = Gate()
         var saved: [Int] = []

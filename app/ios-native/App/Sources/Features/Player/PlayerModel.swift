@@ -98,6 +98,7 @@ final class PlayerModel {
     @ObservationIgnored private let mediaWork = PlaybackTaskScope()
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
     @ObservationIgnored private var closeTask: Task<Void, Never>?
+    @ObservationIgnored private var stoppedTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var isStopped = false
     @ObservationIgnored private var interruptionToken: PlaybackTaskScope.Token?
     @ObservationIgnored private var backgroundObservers: [NSObjectProtocol] = []
@@ -339,6 +340,8 @@ final class PlayerModel {
     func stop() {
         guard !isStopped else { return }
         isStopped = true
+        stoppedTasks = sessionWork.close() + mediaWork.close()
+        manualBrowse.reset()
         transitionTask?.cancel()
         playerTasks.forEach { $0.cancel() }
         playerTasks.removeAll()
@@ -436,7 +439,8 @@ final class PlayerModel {
     private func closeSession() async {
         if let closeTask { await closeTask.value; return }
         reportProgress(force: true)
-        let tasks = sessionWork.invalidate() + mediaWork.invalidate()
+        let tasks = stoppedTasks + sessionWork.invalidate() + mediaWork.invalidate()
+        stoppedTasks.removeAll()
         manualBrowse.reset()
         let session = self.session
         let writer = progressWriter
@@ -519,14 +523,16 @@ final class PlayerModel {
     }
 
     private func reportProgress(force: Bool = false) {
-        guard session != nil, duration.isFinite, currentTime.isFinite, duration > 0, currentTime > 0 else { return }
+        guard let session, duration.isFinite, currentTime.isFinite, duration > 0, currentTime > 0 else { return }
         guard force || currentTime - lastReportedAt >= Self.reportInterval || currentTime < lastReportedAt else { return }
         lastReportedAt = currentTime
-        progressWriter?.submit(ProgressSnapshot(
+        let snapshot = ProgressSnapshot(
             position: Int64(min(currentTime, duration) * 1000),
             duration: Int64(duration * 1000),
             playing: isPlaying,
-        ))
+        )
+        session.notePlayback(positionMillis: snapshot.position, durationMillis: snapshot.duration, isPlaying: snapshot.playing)
+        progressWriter?.submit(snapshot)
     }
 
     /// 时长已知后为当前媒体加载一次跳过片段 (需要开启自动跳过).

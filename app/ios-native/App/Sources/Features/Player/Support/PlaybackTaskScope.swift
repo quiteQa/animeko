@@ -8,13 +8,15 @@ final class PlaybackTaskScope {
     }
 
     private(set) var token = Token()
+    private var isClosed = false
     private var tasks: [UUID: Task<Void, Never>] = [:]
 
     func accepts(_ token: Token) -> Bool {
-        self.token == token && !Task.isCancelled
+        !isClosed && self.token == token && !Task.isCancelled
     }
 
     func run(_ operation: @escaping @MainActor (Token) async -> Void) {
+        guard !isClosed else { return }
         let id = UUID()
         let token = token
         tasks[id] = Task { [weak self] in
@@ -33,4 +35,11 @@ final class PlaybackTaskScope {
         previous.forEach { $0.cancel() }
         return previous
     }
+    /// 永久关闭此工作域; 关闭后的新任务也不能启动.
+    @discardableResult
+    func close() -> [Task<Void, Never>] {
+        isClosed = true
+        return invalidate()
+    }
+
 }

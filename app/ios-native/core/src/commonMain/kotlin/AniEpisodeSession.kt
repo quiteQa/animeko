@@ -152,6 +152,7 @@ class AniEpisodeSession internal constructor(
     private var resolveJob: Job? = null
     private var hlsProxySession: HlsPlaybackProxySession? = null
     private var markedWatched = false
+    private val completionTracker = PlaybackCompletionTracker()
 
     init {
         // MediaFetchSession 只在 cumulativeResults 被持续收集时查询, 停止收集会中断查询.
@@ -229,6 +230,14 @@ class AniEpisodeSession internal constructor(
     }
 
     /**
+     * 同步记录播放完成事实, 不执行 IO. Swift 在合并待保存快照前调用.
+     * 即使接下来的快照是暂停或回看开头, 已发生的完成事实也由本会话保留.
+     */
+    fun notePlayback(positionMillis: Long, durationMillis: Long, isPlaying: Boolean) {
+        completionTracker.observe(positionMillis, durationMillis, isPlaying)
+    }
+
+    /**
      * 上报播放进度. Swift 在播放中定期 (约每 5 秒) 以及暂停, 退出时调用.
      *
      * 保存播放位置; 正在播放且看到 90% 时把本集标记为看过 (每个会话最多一次), 规则与上游一致.
@@ -236,6 +245,7 @@ class AniEpisodeSession internal constructor(
     @Throws(Exception::class)
     suspend fun reportPlayback(positionMillis: Long, durationMillis: Long, isPlaying: Boolean) {
         if (!PlaybackProgressPolicy.shouldSave(positionMillis, durationMillis)) return
+        notePlayback(positionMillis, durationMillis, isPlaying)
         val info = infoBundle.first()
         playHistoryRepository.saveOrUpdate(
             episodeId = episodeId,
@@ -247,13 +257,13 @@ class AniEpisodeSession internal constructor(
             episodeName = info.episodeInfo.displayName,
             durationMillis = durationMillis,
         )
-        if (isPlaying && !markedWatched && PlaybackProgressPolicy.shouldMarkWatched(positionMillis, durationMillis)) {
-            markedWatched = true
+        if (!markedWatched && completionTracker.hasReachedCompletion) {
             if (!settingsRepository.videoScaffoldConfig.flow.first().autoMarkDone) return
             val current = getEpisodeCollectionType(subjectId, episodeId, allowNetwork = false)
             if (current?.isDoneOrDropped() != true) {
                 setEpisodeCollectionType(subjectId, episodeId, UnifiedCollectionType.DONE)
             }
+            markedWatched = true
         }
     }
 

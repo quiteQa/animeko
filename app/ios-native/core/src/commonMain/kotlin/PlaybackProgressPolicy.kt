@@ -32,3 +32,17 @@ internal object PlaybackProgressPolicy {
         return positionMillis >= threshold
     }
 }
+
+/** 合并进度快照时保留已经发生的播放完成事实; 保存位置仍取最新快照. */
+internal class PlaybackCompletionTracker {
+    var hasReachedCompletion: Boolean = false
+        private set
+
+    fun observe(positionMillis: Long, durationMillis: Long, isPlaying: Boolean) {
+        if (isPlaying && PlaybackProgressPolicy.shouldSave(positionMillis, durationMillis) &&
+            PlaybackProgressPolicy.shouldMarkWatched(positionMillis, durationMillis)
+        ) {
+            hasReachedCompletion = true
+        }
+    }
+}

@@ -8,7 +8,7 @@ import UIKit
 enum Diagnostics {
     static let logURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("diagnostics.log")
-    /// mpv 自己的日志 (`log-file`), 每次创建播放器时覆盖.
+    /// 兼容清理旧版本的原始 mpv 日志.
     static let mpvLogURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("mpv.log")
 
