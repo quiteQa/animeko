@@ -448,8 +448,10 @@ final class PlayerModel {
         progressWriter = nil
         // 先停止读取当前代理资源, 再释放 Kotlin 解析会话.
         player.stop()
+        let player = player
         let closing = Task {
             for task in tasks { await task.value }
+            await player.flushCommands()
             await writer?.flush()
             session?.close()
         }
@@ -500,6 +502,8 @@ final class PlayerModel {
             // resolveSelected 会释放旧解析资源, 必须先等上一解析退出.
             for task in previousTasks { await task.value }
             guard let self, mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { return }
+            await player.flushCommands()
+            guard mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { return }
             do {
                 let resumeAt: TimeInterval
                 if let switchingAt {

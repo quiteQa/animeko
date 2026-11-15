@@ -179,6 +179,13 @@ final class MPVBackend: @unchecked Sendable {
         }
     }
 
+    /// 队列屏障: 返回时此前提交的 stop 等控制命令均已执行.
+    func flushCommands() async {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume() }
+        }
+    }
+
     func destroy() {
         queue.async {
             self.expectedEntry = nil

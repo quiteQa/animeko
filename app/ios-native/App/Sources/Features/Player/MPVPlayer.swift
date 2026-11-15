@@ -57,6 +57,8 @@ final class MPVPlayer {
         onChange?()
     }
 
+    func flushCommands() async { await backend.flushCommands() }
+
     func play() { backend.setString("pause", "no") }
     func pause() { backend.setString("pause", "yes") }
 
