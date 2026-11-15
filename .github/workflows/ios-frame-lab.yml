@@ -34,12 +34,25 @@ jobs:
           echo "PROBE_SIMULATOR=$device" >> "$GITHUB_ENV"
           xcrun simctl boot "$device" || true
           xcrun simctl bootstatus "$device" -b
-      - name: Test real mpv to CVPixelBuffer output
+      - name: Build the native bridge and test host
         working-directory: app/ios-native/FrameLab
+        timeout-minutes: 15
         run: |
           set -o pipefail
-          xcodebuild test -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
+          xcodebuild build-for-testing -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
             -destination "platform=iOS Simulator,id=$PROBE_SIMULATOR" \
+            -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/frame-build.log"
+      - name: Test real mpv to CVPixelBuffer output
+        working-directory: app/ios-native/FrameLab
+        timeout-minutes: 8
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
+            -destination "platform=iOS Simulator,id=$PROBE_SIMULATOR" \
+            -derivedDataPath .build/DerivedData \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 90 \
             -resultBundlePath "$RUNNER_TEMP/FrameBridge.xcresult" \
             CODE_SIGNING_ALLOWED=NO | tee "$RUNNER_TEMP/frame-bridge.log"
       - name: Archive the standalone probe (unsigned)
@@ -59,6 +72,7 @@ jobs:
           name: frame-bridge-validation
           path: |
             ${{ runner.temp }}/FrameBridge.xcresult
+            ${{ runner.temp }}/frame-build.log
             ${{ runner.temp }}/frame-bridge.log
             ${{ runner.temp }}/frame-lab-archive.log
             ${{ runner.temp }}/NativeFrameLab-unsigned.ipa
