@@ -16,11 +16,19 @@ enum Diagnostics {
     nonisolated(unsafe) fileprivate static var fd: Int32 = -1
     private static let lock = NSLock()
     private static let maxBytes = 256 * 1024
+    private static let previousURL = logURL.appendingPathExtension("previous")
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm:ss.SSS"
+        return formatter
+    }()
 
     /// 在 App 启动时调用一次.
     static func install() {
         trimIfNeeded()
-        fd = open(logURL.path, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+        fd = open(logURL.path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
+        // 原始 mpv 文件日志可能含视频地址与凭据; 诊断只使用经过脱敏的应用日志.
+        try? FileManager.default.removeItem(at: mpvLogURL)
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         log("===== 启动 \(version), iOS \(UIDevice.current.systemVersion), \(UIDevice.current.model)")
         NSSetUncaughtExceptionHandler { exception in
@@ -39,7 +47,14 @@ enum Diagnostics {
         lock.lock()
         defer { lock.unlock() }
         guard fd >= 0 else { return }
-        let line = "\(timestamp()) \(message)\n"
+        if lseek(fd, 0, SEEK_END) >= maxBytes {
+            if let data = try? Data(contentsOf: logURL) {
+                try? data.suffix(maxBytes).write(to: previousURL, options: .atomic)
+            }
+            ftruncate(fd, 0)
+        }
+        let safeMessage = String(DiagnosticRedactor.redact(message).prefix(8192))
+        let line = "\(timestamp()) \(safeMessage)\n"
         line.utf8CString.withUnsafeBufferPointer { buffer in
             _ = write(fd, buffer.baseAddress, buffer.count - 1)
         }
@@ -47,23 +62,17 @@ enum Diagnostics {
     }
 
     static func read() -> String {
-        var text = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
-        if let mpv = try? String(contentsOf: mpvLogURL, encoding: .utf8), !mpv.isEmpty {
-            // mpv 日志很长, 只保留最后部分
-            text += "\n===== mpv.log (最后 200 行)\n" + mpv.split(separator: "\n", omittingEmptySubsequences: false)
-                .suffix(200).joined(separator: "\n")
-        }
-        return text
+        lock.lock()
+        defer { lock.unlock() }
+        let previous = (try? String(contentsOf: previousURL, encoding: .utf8)) ?? ""
+        let current = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+        return DiagnosticRedactor.redact(previous + current)
     }
 
-    /// 分享用的完整内容: 诊断日志与 mpv 日志合并成一个文件.
+    /// 分享内容与页面一致, 经过相同的脱敏处理.
     static func exportFile() -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("animeko-diagnostics.txt")
-        var text = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
-        if let mpv = try? String(contentsOf: mpvLogURL, encoding: .utf8) {
-            text += "\n===== mpv.log\n" + mpv
-        }
-        try? text.write(to: url, atomically: true, encoding: .utf8)
+        try? read().write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 
@@ -73,6 +82,7 @@ enum Diagnostics {
         guard fd >= 0 else { return }
         ftruncate(fd, 0)
         try? FileManager.default.removeItem(at: mpvLogURL)
+        try? FileManager.default.removeItem(at: previousURL)
     }
 
     private static func trimIfNeeded() {
@@ -81,9 +91,7 @@ enum Diagnostics {
     }
 
     private static func timestamp() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MM-dd HH:mm:ss.SSS"
-        return formatter.string(from: Date())
+        formatter.string(from: Date())
     }
 }
 

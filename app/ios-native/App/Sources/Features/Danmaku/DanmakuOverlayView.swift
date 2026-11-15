@@ -12,11 +12,16 @@ final class DanmakuOverlayView: UIView {
     /// 关闭时所有弹幕显示为白色.
     var showsColor = true
 
+    var isPlaybackAdvancing = true {
+        didSet { updateDisplayLink() }
+    }
+
     var isDanmakuEnabled = true {
         didSet {
             guard oldValue != isDanmakuEnabled else { return }
             clearActive()
             isHidden = !isDanmakuEnabled
+            updateDisplayLink()
         }
     }
 
@@ -34,6 +39,7 @@ final class DanmakuOverlayView: UIView {
     private static let maxActive = 200
     /// 超过这个时长仍未发出的弹幕直接跳过, 避免跳转后一次性涌出.
     private static let lateTolerance: TimeInterval = 1
+    private static let maxReusable = maxActive
 
     private var items: [AniDanmaku] = []
     private var cursor = 0
@@ -61,15 +67,30 @@ final class DanmakuOverlayView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window != nil {
-            let link = CADisplayLink(target: self, selector: #selector(tick))
-            link.add(to: .main, forMode: .common)
-            displayLink = link
-        } else {
+        updateDisplayLink()
+    }
+
+    private func updateDisplayLink() {
+        guard window != nil, isDanmakuEnabled, isPlaybackAdvancing else {
             displayLink?.invalidate()
             displayLink = nil
+            return
         }
+        guard displayLink == nil else { return }
+        // CADisplayLink 保留 target; 代理只弱引用视图.
+        let link = CADisplayLink(target: DisplayLinkTarget(self), selector: #selector(DisplayLinkTarget.tick))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
     }
+
+    private final class DisplayLinkTarget: NSObject {
+        weak var view: DanmakuOverlayView?
+        init(_ view: DanmakuOverlayView) { self.view = view }
+        @objc func tick() { view?.tick() }
+    }
+
+    deinit { displayLink?.invalidate() }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -180,7 +201,7 @@ final class DanmakuOverlayView: UIView {
 
     private func recycle(_ layer: CATextLayer) {
         layer.removeFromSuperlayer()
-        reusable.append(layer)
+        if reusable.count < Self.maxReusable { reusable.append(layer) }
     }
 
     private func clearActive() {
@@ -217,6 +238,8 @@ private extension UIColor {
 
 struct DanmakuOverlay: UIViewRepresentable {
     let danmaku: [AniDanmaku]
+    let renderKey: DanmakuRenderKey
+    let isPlaybackAdvancing: Bool
     let isEnabled: Bool
     var showsColor = true
     let currentTime: () -> TimeInterval?
@@ -225,16 +248,21 @@ struct DanmakuOverlay: UIViewRepresentable {
         let view = DanmakuOverlayView()
         view.currentTime = currentTime
         view.setDanmaku(danmaku)
-        context.coordinator.count = danmaku.count
+        context.coordinator.key = renderKey
+        view.isDanmakuEnabled = isEnabled
+        view.isPlaybackAdvancing = isPlaybackAdvancing
+        view.showsColor = showsColor
         return view
     }
 
     func updateUIView(_ view: DanmakuOverlayView, context: Context) {
         view.currentTime = currentTime
         view.isDanmakuEnabled = isEnabled
+        view.isPlaybackAdvancing = isPlaybackAdvancing
+        let colorChanged = view.showsColor != showsColor
         view.showsColor = showsColor
-        if context.coordinator.count != danmaku.count {
-            context.coordinator.count = danmaku.count
+        if context.coordinator.key != renderKey || colorChanged {
+            context.coordinator.key = renderKey
             view.setDanmaku(danmaku)
         }
     }
@@ -242,6 +270,6 @@ struct DanmakuOverlay: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator {
-        var count = 0
+        var key: DanmakuRenderKey?
     }
 }

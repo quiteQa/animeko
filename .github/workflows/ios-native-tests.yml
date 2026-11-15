@@ -1,0 +1,33 @@
+name: iOS Native Unit Tests
+on:
+  push:
+    branches: ['claude/**', 'codex/**']
+    paths: ['app/ios-native/**', '.github/workflows/ios-native-tests.yml']
+  pull_request:
+    paths: ['app/ios-native/**', '.github/workflows/ios-native-tests.yml']
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: ios-native-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  swift-tests:
+    name: Swift playback regression tests
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run the App's pure Swift playback and danmaku tests
+        working-directory: app/ios-native/App
+        run: swift test --parallel
+      - name: Record validation boundary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          ## Native iOS validation
+          This job tests the production Swift task ownership, progress queue,
+          request headers, and danmaku policies. It does not test device playback,
+          HDR/Dolby Vision output, Picture in Picture, or an AirPlay receiver.
+          Those require the device checks in app/ios-native/VALIDATION.md.
+          SUMMARY

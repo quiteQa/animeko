@@ -1,3 +1,6 @@
+#if canImport(NativePlaybackSupport)
+@testable import NativePlaybackSupport
+#endif
 import Testing
 
 struct DanmakuTrackAllocatorTests {

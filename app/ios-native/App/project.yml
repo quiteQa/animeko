@@ -54,6 +54,8 @@ targets:
     sources:
       - path: Tests
       - path: Sources/Features/Danmaku/DanmakuTrackAllocator.swift
+      - path: Sources/Features/Danmaku/DanmakuRenderKey.swift
+      - path: Sources/Features/Player/Support
     dependencies: []
 schemes:
   AnimekoNative:

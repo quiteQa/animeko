@@ -104,7 +104,7 @@ import kotlin.time.Duration
  * [MediaSelectorAutoSelectUseCase] 与 [MediaResolver], 因此选源规则与 Animeko 其他平台一致.
  * 本类只负责把结果翻译成 facade 值类型, 不持有任何界面状态.
  *
- * 播放器由 Swift 持有: [resolveSelected] 返回可播放地址, Swift 用它创建 `AVPlayerItem`.
+ * 播放器由 Swift 持有: [resolveSelected] 返回可播放地址, Swift 把地址与请求头交给 mpv.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AniEpisodeSession internal constructor(
@@ -525,7 +525,7 @@ class AniEpisodeSession internal constructor(
     }
 
     /**
-     * 与上游 `PlayerSession` 相同的 HLS 去广告判断. 本客户端不做自动跳过 OP/ED, 因此不需要代理分片.
+     * 与上游 `PlayerSession` 相同的 HLS 去广告判断. 分片不经代理预取, OP/ED 使用服务器跳过点.
      */
     private suspend fun prepareHls(data: UriMediaData, media: Media, startPositionMillis: Long): UriMediaData {
         val config = getVideoScaffoldConfig().first()
@@ -585,10 +585,16 @@ class AniEpisodeSession internal constructor(
      * 自动播放时的下一集: 剧集列表中紧随本集且确定已播出的一集. 没有时为 `null`. 与上游规则相同.
      */
     @Throws(Exception::class)
-    suspend fun nextEpisode(): AniEpisode? {
+    suspend fun nextEpisode(): AniEpisode? = neighborEpisode(offset = 1)
+
+    /** 同类型的上一集, 只返回确定已播出的剧集. */
+    @Throws(Exception::class)
+    suspend fun previousEpisode(): AniEpisode? = neighborEpisode(offset = -1)
+
+    private suspend fun neighborEpisode(offset: Int): AniEpisode? {
         val subject = infoBundle.first().subjectCollectionInfo
         return subject.episodes
-            .findNeighborEpisode(episodeId, offset = 1)
+            .findNeighborEpisode(episodeId, offset)
             ?.takeIf { with(EpisodeCompletionContext) { it.episodeInfo.isKnownCompleted(subject.recurrence) } }
             ?.toAniEpisode()
     }
