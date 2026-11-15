@@ -13,12 +13,16 @@ final class PixelBufferBridgeTests: XCTestCase {
         let framesReady = expectation(description: "three decoded SDR frames")
         var frames: [ProbeFrame] = []
         var errors: [String] = []
+        var completed = false
         let engine = FrameProbeEngine(receive: { _, event in
-            if case .failed(let message) = event { errors.append(message) }
+            if case .failed(let message) = event {
+                errors.append(message)
+                if !completed { completed = true; framesReady.fulfill() }
+            }
         }, frames: { frame in
-            if frames.count < 3 {
+            if !completed {
                 frames.append(frame)
-                if frames.count == 3 { framesReady.fulfill() }
+                if frames.count == 3 { completed = true; framesReady.fulfill() }
             }
         })
         engine.open(try fixture("sdr-pattern"), generation: UUID())
@@ -72,7 +76,13 @@ final class PixelBufferBridgeTests: XCTestCase {
         let noExtraFrame = expectation(description: "no fourth retained buffer")
         noExtraFrame.isInverted = true
         var phase = 0 // collecting, holding, resuming, finished
-        let engine = FrameProbeEngine(receive: { _, _ in }, frames: { frame in
+        var errors: [String] = []
+        let engine = FrameProbeEngine(receive: { _, event in
+            if case .failed(let message) = event {
+                errors.append(message)
+                if phase == 0 { phase = 3; full.fulfill() }
+            }
+        }, frames: { frame in
             switch phase {
             case 0:
                 held.append(frame)
@@ -84,6 +94,11 @@ final class PixelBufferBridgeTests: XCTestCase {
         })
         engine.open(try fixture("sdr-pattern"), generation: UUID())
         await fulfillment(of: [full], timeout: 30)
+        guard errors.isEmpty, held.count == 3 else {
+            await withCheckedContinuation { continuation in engine.close { continuation.resume() } }
+            XCTFail("frame pool did not fill: \(errors.joined(separator: ", "))")
+            return
+        }
         await fulfillment(of: [noExtraFrame], timeout: 0.15)
         phase = 2
         held.removeAll()

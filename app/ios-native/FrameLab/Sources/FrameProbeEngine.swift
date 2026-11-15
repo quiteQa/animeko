@@ -80,7 +80,13 @@ final class FrameProbeEngine: @unchecked Sendable {
             let callback = Unmanaged<Callback>.fromOpaque(pointer).takeUnretainedValue()
             callback.engine?.wake()
         }, callback.toOpaque())
-        let output = MPVPixelBufferOutput(state: state, receive: frames)
+        let output = MPVPixelBufferOutput(state: state, receive: frames, failure: { [weak self] message in
+            guard let self else { return }
+            queue.async {
+                self.emit(.failed(message))
+                if let handle = self.handle { mpv_set_property_string(handle, "pause", "yes") }
+            }
+        })
         self.output = output
         output.initialize(handle: handle) { [weak self] error in
             guard let self else { return }
@@ -197,6 +203,11 @@ final class FrameProbeEngine: @unchecked Sendable {
     }
 
     private func emit(_ event: Event) {
+        switch event {
+        case .metadata(let color): print("[frame-probe] metadata \(color) -> \(color.verdict)")
+        case .failed(let reason): print("[frame-probe] failure: \(reason)")
+        default: break
+        }
         let generation = generation
         let receive = receive
         Task { @MainActor in receive(generation, event) }

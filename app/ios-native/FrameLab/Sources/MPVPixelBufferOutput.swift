@@ -42,6 +42,10 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
     private var scheduled = false
     private let state: ProbeState
     private let receive: @MainActor (ProbeFrame) -> Void
+    private let failure: (String) -> Void
+    private var reportedFailure = false
+    private var reportedMetadataWait = false
+    private var reportedOutput = false
     private var context: EAGLContext?
     private var renderer: OpaquePointer?
     private var clockHandle: OpaquePointer?
@@ -53,9 +57,10 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
     static let width = 640
     static let height = 360
 
-    init(state: ProbeState, receive: @escaping @MainActor (ProbeFrame) -> Void) {
+    init(state: ProbeState, receive: @escaping @MainActor (ProbeFrame) -> Void, failure: @escaping (String) -> Void) {
         self.state = state
         self.receive = receive
+        self.failure = failure
     }
 
     private final class Callback {
@@ -137,18 +142,33 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
         let updates = mpv_render_context_update(renderer)
         guard updates & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
         let snapshot = state.read()
-        guard snapshot.metadataReady, snapshot.color.verdict == .sdr else { skip(renderer); return }
+        guard snapshot.metadataReady, snapshot.color.verdict == .sdr else {
+            if !reportedMetadataWait {
+                print("[frame-probe] waiting for allowed decoded color: \(snapshot.color)")
+                reportedMetadataWait = true
+            }
+            skip(renderer)
+            return
+        }
         CVOpenGLESTextureCacheFlush(cache, 0)
         var pixelBuffer: CVPixelBuffer?
         let limit = [kCVPixelBufferPoolAllocationThresholdKey as String: 3] as CFDictionary
         let allocation = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, pool, limit, &pixelBuffer)
-        guard allocation == kCVReturnSuccess, let pixelBuffer else { skip(renderer); return }
+        guard allocation == kCVReturnSuccess, let pixelBuffer else {
+            if allocation != kCVReturnWouldExceedAllocationThreshold { fail("pixel buffer allocation: \(allocation)") }
+            skip(renderer)
+            return
+        }
         var texture: CVOpenGLESTexture?
         let result = CVOpenGLESTextureCacheCreateTextureFromImage(
             kCFAllocatorDefault, cache, pixelBuffer, nil, GLenum(GL_TEXTURE_2D), GLint(GL_RGBA),
             GLsizei(Self.width), GLsizei(Self.height), GLenum(GL_BGRA), GLenum(GL_UNSIGNED_BYTE), 0, &texture
         )
-        guard result == kCVReturnSuccess, let texture else { skip(renderer); return }
+        guard result == kCVReturnSuccess, let texture else {
+            fail("CVOpenGLESTextureCacheCreateTextureFromImage: \(result)")
+            skip(renderer)
+            return
+        }
         glBindFramebuffer(GLenum(GL_FRAMEBUFFER), framebuffer)
         glBindTexture(CVOpenGLESTextureGetTarget(texture), CVOpenGLESTextureGetName(texture))
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_MIN_FILTER), GLint(GL_LINEAR))
@@ -156,7 +176,12 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_WRAP_S), GLint(GL_CLAMP_TO_EDGE))
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_WRAP_T), GLint(GL_CLAMP_TO_EDGE))
         glFramebufferTexture2D(GLenum(GL_FRAMEBUFFER), GLenum(GL_COLOR_ATTACHMENT0), GLenum(GL_TEXTURE_2D), CVOpenGLESTextureGetName(texture), 0)
-        guard glCheckFramebufferStatus(GLenum(GL_FRAMEBUFFER)) == GLenum(GL_FRAMEBUFFER_COMPLETE) else { skip(renderer); return }
+        let framebufferStatus = glCheckFramebufferStatus(GLenum(GL_FRAMEBUFFER))
+        guard framebufferStatus == GLenum(GL_FRAMEBUFFER_COMPLETE) else {
+            fail("OpenGL framebuffer incomplete: \(framebufferStatus)")
+            skip(renderer)
+            return
+        }
         var frameInfo = mpv_render_frame_info()
         withUnsafeMutablePointer(to: &frameInfo) { pointer in
             let infoParam = mpv_render_param(type: MPV_RENDER_PARAM_NEXT_FRAME_INFO, data: pointer)
@@ -174,7 +199,8 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
         glFinish()
         glFramebufferTexture2D(GLenum(GL_FRAMEBUFFER), GLenum(GL_COLOR_ATTACHMENT0), GLenum(GL_TEXTURE_2D), 0, 0)
         CVOpenGLESTextureCacheFlush(cache, 0)
-        guard status >= 0 else { return }
+        guard status >= 0 else { fail("mpv_render_context_render: \(status)"); return }
+        if !reportedOutput { print("[frame-probe] first IOSurface frame rendered"); reportedOutput = true }
         let now = CMClockGetTime(CMClockGetHostTimeClock()).seconds
         let seconds = FrameProbeClock.presentationSeconds(targetMicroseconds: frameInfo.target_time, mpvNowMicroseconds: mpv_get_time_us(clockHandle), hostNowSeconds: now)
         CVBufferSetAttachment(pixelBuffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
@@ -182,6 +208,12 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
         let frame = ProbeFrame(buffer: pixelBuffer, hostTime: CMTime(seconds: seconds, preferredTimescale: 1_000_000), generation: snapshot.generation)
         let receive = receive
         Task { @MainActor in receive(frame) }
+    }
+
+    private func fail(_ message: String) {
+        guard !reportedFailure else { return }
+        reportedFailure = true
+        failure(message)
     }
 
     private func skip(_ renderer: OpaquePointer) {
