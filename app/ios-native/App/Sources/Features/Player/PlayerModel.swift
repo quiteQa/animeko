@@ -598,8 +598,8 @@ final class PlayerModel {
                     guard let self,
                           let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                           reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
-                    interruptionToken = nil
-                    player.pause()
+                    self.interruptionToken = nil
+                    self.player.pause()
                 }
             },
         ]
