@@ -44,6 +44,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
     private let receive: @MainActor (ProbeFrame) -> Void
     private var context: EAGLContext?
     private var renderer: OpaquePointer?
+    private var clockHandle: OpaquePointer?
     private var cache: CVOpenGLESTextureCache?
     private var pool: CVPixelBufferPool?
     private var framebuffer: GLuint = 0
@@ -76,6 +77,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
     }
 
     private func create(handle: OpaquePointer) throws {
+        clockHandle = handle
         guard let context = EAGLContext(api: .openGLES3), EAGLContext.setCurrent(context) else {
             throw ProbeFailure("EAGLContext 不可用")
         }
@@ -131,7 +133,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
     }
 
     private func render() {
-        guard let renderer, let pool, let cache else { return }
+        guard let renderer, let clockHandle, let pool, let cache else { return }
         let updates = mpv_render_context_update(renderer)
         guard updates & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
         let snapshot = state.read()
@@ -174,7 +176,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
         CVOpenGLESTextureCacheFlush(cache, 0)
         guard status >= 0 else { return }
         let now = CMClockGetTime(CMClockGetHostTimeClock()).seconds
-        let seconds = FrameProbeClock.presentationSeconds(targetMicroseconds: frameInfo.target_time, mpvNowMicroseconds: mpv_get_time_us(), hostNowSeconds: now)
+        let seconds = FrameProbeClock.presentationSeconds(targetMicroseconds: frameInfo.target_time, mpvNowMicroseconds: mpv_get_time_us(clockHandle), hostNowSeconds: now)
         CVBufferSetAttachment(pixelBuffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
         CVBufferSetAttachment(pixelBuffer, kCVImageBufferTransferFunctionKey, kCVImageBufferTransferFunction_sRGB, .shouldPropagate)
         let frame = ProbeFrame(buffer: pixelBuffer, hostTime: CMTime(seconds: seconds, preferredTimescale: 1_000_000), generation: snapshot.generation)
@@ -209,6 +211,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
             mpv_render_context_free(renderer)
         }
         renderer = nil
+        clockHandle = nil
         callback?.release()
         callback = nil
         if framebuffer != 0 { glDeleteFramebuffers(1, &framebuffer) }
