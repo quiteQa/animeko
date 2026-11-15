@@ -17,7 +17,7 @@ AVPictureInPictureController
 - client API 与 render API 在独立队列执行, 不在渲染线程调用需要 `mpv_handle` 的 API, 不建立跨队列同步等待。
 - GPU 绘制完成后才交出像素缓冲区; 没有逐帧截图、CPU 像素回读或 AVPlayer 解码。测试会读缓冲区检查上下方向。
 - 输入只接受本地文件。BT、网络供流与 VOD 媒体时间轴映射不在此实验内。
-- 明确的 SDR 白名单; HDR10、HLG、Dolby Vision 和未知色彩信息不进入 BGRA8 输出。主客户端的高位深/DV 要求保持阻塞。
+- 先读取编码层色彩与 DV 配置, 再核对 mpv 解码参数; 不把 mpv 推断的默认色彩当作源文件声明。明确的 SDR 白名单; HDR10、HLG、Dolby Vision 和未知色彩信息不进入 BGRA8 输出。主客户端的高位深/DV 要求保持阻塞。
 - 当前 MPVKit 在 iOS 上禁用 VideoToolbox/OpenGL 互操作, 因此实验使用 `videotoolbox-copy`。它不能作为零复制、4K HDR 或低功耗达标的证据。
 - 画中画由系统 sample-buffer 接口承接; 需要真机验证启动、暂停、后台、返回界面及音画同步。模拟器帧测试不等于画中画测试通过。
 
@@ -41,6 +41,7 @@ xcodebuild test -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
 `Tests/Fixtures` 是 FFmpeg 生成的纯色测试视频, 不含第三方媒体内容。它们是自动测试资源, 不是验证截图或录屏。
 
 - `sdr-pattern.mp4`: H.264 / BT.709, 上红下蓝, 160×90, 24fps, 3 秒。
+- `unknown-color.mp4`: H.264, 未声明原色与传递函数, 用于验证未知输入不会被 mpv 默认值放行。
 - `hdr10-pattern.mp4`: HEVC Main 10 / BT.2020 / SMPTE ST 2084, 160×90, 24fps, 1 秒; 用于测试拦截, 不能验证 HDR 保真。
 
 生成方式:

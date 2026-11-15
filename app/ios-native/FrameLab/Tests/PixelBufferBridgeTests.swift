@@ -58,6 +58,13 @@ final class PixelBufferBridgeTests: XCTestCase {
         await withCheckedContinuation { continuation in engine.close { continuation.resume() } }
     }
 
+    func testUnspecifiedSourceMetadataIsNotReplacedWithMpvDefaults() async throws {
+        let color = try ProbeInputColor.inspect(fixture("unknown-color"))
+        XCTAssertNil(color.primaries)
+        XCTAssertNil(color.transfer)
+        if case .blocked = color.verdict {} else { XCTFail("unspecified input must be blocked") }
+    }
+
     func testRetainingThreeBuffersAppliesBackpressureAndReleasingThemResumesOutput() async throws {
         let full = expectation(description: "pool reaches three retained buffers")
         let resumed = expectation(description: "rendering resumes after release")

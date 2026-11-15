@@ -40,6 +40,15 @@ final class FrameProbeEngine: @unchecked Sendable {
             self.expectedEntry = nil
             self.activeEntry = nil
             self.state.update { $0 = ProbeState.Snapshot(generation: generation) }
+            if let handle = self.handle { _ = self.command(["stop"], handle: handle) }
+            do {
+                let inputColor = try ProbeInputColor.inspect(url)
+                self.emit(.metadata(inputColor))
+                if case .blocked = inputColor.verdict { return }
+            } catch {
+                self.emit(.failed(error.localizedDescription))
+                return
+            }
             self.pendingURL = url
             if self.handle == nil { self.initialize() }
             if self.renderReady { self.loadPending() }

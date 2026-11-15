@@ -12,6 +12,7 @@ on:
     paths:
     - 'app/ios-native/**'
     - '!app/ios-native/libtorrent/**'
+    - '!app/ios-native/FrameLab/**'
     - '.github/workflows/ios-native.yml'
 concurrency:
   # 手动触发与推送触发分属不同的组: 手动构建不会取消正在进行的推送构建, 反之亦然

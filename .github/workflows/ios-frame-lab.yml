@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ios-frame-lab-${{ github.ref }}
+  group: ios-frame-lab-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   frame-bridge:
