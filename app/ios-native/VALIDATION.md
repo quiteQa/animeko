@@ -7,13 +7,15 @@
 - `.github/workflows/ios-native.yml` 执行 Kotlin facade 的 `desktopTest`, 再编译、链接和归档 iOS App。
 - 构建成功、策略测试通过、真机播放通过是不同证据, 必须分别报告。
 
+- 独立帧输出实验与原生缓冲区测试见 [FrameLab](FrameLab/README.md), CI 为 `.github/workflows/ios-frame-lab.yml`。
+
 ## 首版关卡
 
 | 能力 | 实现与证据 | 状态 |
 | --- | --- | --- |
 | 在线播放可靠性 | 主线程状态、原生队列、会话任务代次、有限进度队列、完整请求头配置 | 自动回归; 真机待验证 |
 | BT | libtorrent 交叉编译与模拟器冒烟; Native 下载器尚未接通 | 阻塞 |
-| mpv 全格式画中画 | 当前 gpu-next/MoltenVK 输出到 CAMetalLayer; 没有 CVPixelBuffer 输出桥 | 阻塞 |
+| mpv 全格式画中画 | 当前 gpu-next/MoltenVK 输出到 CAMetalLayer; [FrameLab](FrameLab/README.md) 包含独立 SDR OpenGL → CVPixelBuffer 实验, 主客户端未启用 | 高位深、DV 与真机画中画仍阻塞 |
 | 直接 AirPlay | 没有局域网供流与转封装管线, 也没有接收端实测 | 阻塞 |
 | 4K HDR / Dolby Vision 全保真 | 未建立按 Profile 的端到端验证证据 | 阻塞 |
 

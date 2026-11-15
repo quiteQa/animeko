@@ -1,0 +1,65 @@
+name: iOS Frame Bridge Lab
+on:
+  push:
+    branches: ['claude/**', 'codex/**']
+    paths:
+      - 'app/ios-native/FrameLab/**'
+      - 'app/ios-native/App/Sources/Features/Player/Support/FrameProbePolicy.swift'
+      - '.github/workflows/ios-frame-lab.yml'
+  pull_request:
+    paths:
+      - 'app/ios-native/FrameLab/**'
+      - 'app/ios-native/App/Sources/Features/Player/Support/FrameProbePolicy.swift'
+      - '.github/workflows/ios-frame-lab.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: ios-frame-lab-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  frame-bridge:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate the isolated frame bridge project
+        working-directory: app/ios-native/FrameLab
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Select an iPhone simulator
+        run: |
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for runtime,group in sorted(d["devices"].items(),reverse=True) if "iOS-" in runtime and int(runtime.split("iOS-")[-1].split("-")[0]) >= 26 for x in group if x["name"].startswith("iPhone")))')
+          echo "PROBE_SIMULATOR=$device" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device" || true
+          xcrun simctl bootstatus "$device" -b
+      - name: Test real mpv to CVPixelBuffer output
+        working-directory: app/ios-native/FrameLab
+        run: |
+          set -o pipefail
+          xcodebuild test -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
+            -destination "platform=iOS Simulator,id=$PROBE_SIMULATOR" \
+            -resultBundlePath "$RUNNER_TEMP/FrameBridge.xcresult" \
+            CODE_SIGNING_ALLOWED=NO | tee "$RUNNER_TEMP/frame-bridge.log"
+      - name: Archive the standalone probe (unsigned)
+        working-directory: app/ios-native/FrameLab
+        run: |
+          set -o pipefail
+          xcodebuild archive -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
+            -configuration Debug -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/NativeFrameLab.xcarchive" CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/frame-lab-archive.log"
+          mkdir -p "$RUNNER_TEMP/probe/Payload"
+          cp -R "$RUNNER_TEMP/NativeFrameLab.xcarchive/Products/Applications/NativeFrameLab.app" "$RUNNER_TEMP/probe/Payload/"
+          (cd "$RUNNER_TEMP/probe" && zip -qry ../NativeFrameLab-unsigned.ipa Payload)
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: frame-bridge-validation
+          path: |
+            ${{ runner.temp }}/FrameBridge.xcresult
+            ${{ runner.temp }}/frame-bridge.log
+            ${{ runner.temp }}/frame-lab-archive.log
+            ${{ runner.temp }}/NativeFrameLab-unsigned.ipa
+          if-no-files-found: ignore
