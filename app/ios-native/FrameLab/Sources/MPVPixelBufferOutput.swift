@@ -4,6 +4,7 @@ import Darwin
 import Foundation
 import Libmpv
 import OpenGLES
+import OpenGLES.ES3
 
 /// 控制队列写入, 渲染队列读取; 渲染队列不调用需要 mpv_handle 的 client API.
 final class ProbeState: @unchecked Sendable {
