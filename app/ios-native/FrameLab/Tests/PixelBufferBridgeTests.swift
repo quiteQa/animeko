@@ -71,9 +71,9 @@ final class PixelBufferBridgeTests: XCTestCase {
 
     func testRetainingThreeBuffersAppliesBackpressureAndReleasingThemResumesOutput() async throws {
         let full = expectation(description: "pool reaches three retained buffers")
-        let resumed = expectation(description: "rendering resumes after release")
+        let resumed = XCTestExpectation(description: "rendering resumes after release")
         var held: [ProbeFrame] = []
-        let noExtraFrame = expectation(description: "no fourth retained buffer")
+        let noExtraFrame = XCTestExpectation(description: "no fourth retained buffer")
         noExtraFrame.isInverted = true
         var phase = 0 // collecting, holding, resuming, finished
         var errors: [String] = []

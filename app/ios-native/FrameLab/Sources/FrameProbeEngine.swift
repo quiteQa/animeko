@@ -61,7 +61,7 @@ final class FrameProbeEngine: @unchecked Sendable {
         // copy 路径是当前 MPVKit 的 OpenGL 兼容性实验, 不是零复制/HDR 的正式实现.
         for (key, value) in [
             ("vo", "libmpv"), ("hwdec", "videotoolbox-copy"), ("keep-open", "yes"),
-            ("idle", "yes"), ("config", "no"), ("load-scripts", "no"), ("ytdl", "no"),
+            ("idle", "yes"), ("config", "no"), ("load-scripts", "no"),
             ("terminal", "no"), ("target-prim", "bt.709"), ("target-trc", "srgb"),
         ] {
             let result = mpv_set_option_string(handle, key, value)
