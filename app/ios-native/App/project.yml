@@ -17,6 +17,7 @@ settings:
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: NO
+    SWIFT_OBJC_BRIDGING_HEADER: Sources/Media/AnimekoNative-Bridging-Header.h
 targets:
   AnimekoNative:
     type: application
@@ -32,9 +33,11 @@ targets:
         # 播放器截图保存到相册
         NSPhotoLibraryAddUsageDescription: 将播放器截图保存到相册
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
-        # 网页数据源与自建媒体库常见 http 地址
+        NSLocalNetworkUsageDescription: 将本机视频发送到同一局域网的 AirPlay 接收器
+        # HTTP 例外仅用于媒体播放与局域网服务.
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+          NSAllowsArbitraryLoadsInMedia: true
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: me.him188.ani.native.app
@@ -43,6 +46,9 @@ targets:
     # 只随 App 嵌入, 不链接到 App 本身: App 静态链接 MPVKit 自带的 FFmpeg, 若同时链接 MediampFFmpegKit,
     # 链接器会把 mpv 的部分 FFmpeg 符号解析到 MediampFFmpegKit, mpv 检测到版本不一致后在 mpv_initialize 中退出.
     dependencies:
+      - framework: ../libtorrent/build/LibTorrent.xcframework
+        embed: false
+        link: true
       - framework: ../../../utils/http-downloader/build/mediamp-ffmpeg/apple-runtime/MediampFFmpegKit.xcframework
         embed: true
         link: false

@@ -1,0 +1,29 @@
+name: iOS Media SDK Checks
+on:
+  push:
+    branches: ['claude/**', 'codex/**']
+    paths:
+      - 'app/ios-native/App/Sources/Media/**'
+      - 'app/ios-native/App/Sources/Features/Player/Support/**'
+      - 'ci-helper/check-native-media.py'
+      - '.github/workflows/ios-media-sdk.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: ios-media-sdk-${{ github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  media-sdk:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Resolve the pinned media SDK
+        working-directory: app/ios-native/FrameLab
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -resolvePackageDependencies -project NativeFrameLab.xcodeproj -scheme NativeFrameLab -clonedSourcePackagesDirPath "$RUNNER_TEMP/media-packages"
+      - name: Typecheck production media code against Apple and FFmpeg headers
+        run: python3 ci-helper/check-native-media.py "$RUNNER_TEMP/media-packages"

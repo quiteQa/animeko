@@ -68,9 +68,14 @@ int main(int argc, char **argv) {
     ANITDestroyReadToken(token);
     ANITSetPaused(torrent, 1);
     ANITSaveResume(torrent);
-    for (int i = 0; i < 100 && !std::filesystem::exists(root / "download" / ".resume"); ++i)
+    bool saved = false;
+    for (int i = 0; i < 100 && !saved; ++i) {
+        for (const auto &item : std::filesystem::recursive_directory_iterator(root / "download"))
+            if (item.path().filename() == ".resume") saved = true;
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
-    assert(std::filesystem::exists(root / "download" / ".resume"));
+    }
+    assert(saved);
+    ANITTrimReadCache(torrent);
     ANITRemove(torrent, 0);
     ANITCloseTorrent(torrent);
     ANITDestroyEngine(engine);

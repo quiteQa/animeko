@@ -30,6 +30,7 @@ int32_t ANITSelectFile(ANITTorrent *, int32_t index);
 ANITStatus ANITGetStatus(ANITTorrent *torrent);
 void ANITSetPaused(ANITTorrent *, int32_t paused);
 void ANITSaveResume(ANITTorrent *torrent);
+void ANITTrimReadCache(ANITTorrent *torrent);
 void ANITRemove(ANITTorrent *torrent, int32_t delete_files);
 ANITReadToken *ANITCreateReadToken(void);
 void ANITCancelRead(ANITReadToken *token);

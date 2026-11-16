@@ -11,7 +11,6 @@ on:
     - 'codex/**'
     paths:
     - 'app/ios-native/**'
-    - '!app/ios-native/libtorrent/**'
     - '!app/ios-native/FrameLab/**'
     - '.github/workflows/ios-native.yml'
 concurrency:
@@ -117,6 +116,22 @@ jobs:
         exit 1
 
     # pod install 要求 AniCore.framework 已存在, 先生成占位 framework; 真正的 framework 在 xcodebuild 时编译
+    - uses: actions/cache/restore@v4
+      id: native-cache
+      with:
+        path: app/ios-native/libtorrent/build
+        key: ios-lt-${{ runner.arch }}-${{ hashFiles('app/ios-native/libtorrent/versions.env') }}-${{ hashFiles('app/ios-native/libtorrent/bridge/**', 'app/ios-native/libtorrent/CMakeLists.txt') }}
+        restore-keys: ios-lt-${{ runner.arch }}-${{ hashFiles('app/ios-native/libtorrent/versions.env') }}-
+
+    - name: 'Build native BitTorrent engine'
+      run: ./app/ios-native/libtorrent/build-ios.sh
+
+    - uses: actions/cache/save@v4
+      if: steps.native-cache.outputs.cache-hit != 'true'
+      with:
+        path: app/ios-native/libtorrent/build
+        key: ${{ steps.native-cache.outputs.cache-primary-key }}
+
     - name: 'Run Kotlin facade regression tests'
       run: ./gradlew :app:ios-native:core:desktopTest "-Dorg.gradle.jvmargs=-Xmx5g" "-Dkotlin.daemon.jvm.options=-Xmx5g"
 

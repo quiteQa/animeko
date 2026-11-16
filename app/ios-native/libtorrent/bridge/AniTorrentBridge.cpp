@@ -45,6 +45,7 @@ struct Torrent {
     size_t cachedBytes = 0;
     std::atomic<bool> removed{false};
     std::atomic<bool> configured{false};
+    std::atomic<bool> cacheEnabled{false};
 };
 lt::settings_pack settings() {
     lt::settings_pack pack;
@@ -84,7 +85,7 @@ void Engine::poll() {
                 std::lock_guard<std::mutex> lock(torrent->mutex);
                 const int index = static_cast<int>(piece->piece);
                 torrent->requested.erase(index);
-                if (!piece->error && piece->size > 0) {
+                if (!piece->error && piece->size > 0 && torrent->cacheEnabled) {
                     // The cache is bounded independently of piece size; an active read keeps its own copy.
                     while (!torrent->pieces.empty() && torrent->cachedBytes + size_t(piece->size) > 32 * 1024 * 1024) {
                         torrent->cachedBytes -= torrent->pieces.begin()->second.size();
@@ -135,22 +136,28 @@ static ANITTorrent *add(ANITEngine *engine, lt::add_torrent_params params, const
                 return new ANITTorrent{existing};
         }
     }
-    std::filesystem::create_directories(directory);
-    std::ifstream file(std::string(directory) + "/.resume", std::ios::binary);
+    const auto hashes = params.info_hashes;
+    const std::string rawHash = hashes.has_v1() ? hashes.v1.to_string() : hashes.v2.to_string();
+    std::string hashName = hashes.has_v1() ? "v1-" : "v2-";
+    const char *hex = "0123456789abcdef";
+    for (unsigned char byte : rawHash) { hashName += hex[byte >> 4]; hashName += hex[byte & 15]; }
+    const auto saveDirectory = std::string(directory) + "/" + hashName;
+    std::filesystem::create_directories(saveDirectory);
+    std::ifstream file(saveDirectory + "/.resume", std::ios::binary);
     if (file) {
         std::vector<char> bytes((std::istreambuf_iterator<char>(file)), {});
         lt::error_code error;
         auto saved = lt::read_resume_data(bytes, error);
         if (!error && saved.info_hashes == params.info_hashes) params = std::move(saved);
     }
-    params.save_path = directory;
+    params.save_path = saveDirectory;
     params.flags &= ~lt::torrent_flags::auto_managed;
     params.flags &= ~lt::torrent_flags::paused;
     params.flags |= lt::torrent_flags::duplicate_is_error;
     if (params.ti) params.file_priorities.assign(params.ti->num_files(), lt::dont_download);
     auto result = std::make_shared<Torrent>();
     result->engine = engine->value;
-    result->directory = directory;
+    result->directory = saveDirectory;
     result->handle = engine->value->session.add_torrent(std::move(params));
     {
         std::lock_guard<std::mutex> lock(engine->value->mutex);
@@ -223,10 +230,20 @@ extern "C" void ANITSetPaused(ANITTorrent *torrent, int32_t paused) {
 extern "C" void ANITSaveResume(ANITTorrent *torrent) {
     try { torrent->value->handle.save_resume_data(lt::torrent_handle::save_info_dict); } catch (...) {}
 }
+extern "C" void ANITTrimReadCache(ANITTorrent *torrent) {
+    if (!torrent) return;
+    auto value = torrent->value;
+    std::lock_guard<std::mutex> lock(value->mutex);
+    value->cacheEnabled = false;
+    value->pieces.clear(); value->cachedBytes = 0;
+}
 extern "C" void ANITRemove(ANITTorrent *torrent, int32_t delete_files) {
     if (!torrent) return;
     auto value = torrent->value;
     if (value->removed.exchange(true)) return;
+    std::error_code ignored;
+    std::filesystem::remove(value->directory + "/.resume", ignored);
+    std::filesystem::remove(value->directory + "/.resume.tmp", ignored);
     value->condition.notify_all();
     try { value->engine->session.remove_torrent(value->handle, delete_files ? lt::session::delete_files : lt::remove_flags_t{}); } catch (...) {}
 }
@@ -238,6 +255,7 @@ extern "C" int32_t ANITRead(ANITTorrent *torrent, int32_t index, int64_t offset,
     try {
         if (!torrent || !destination || capacity <= 0 || offset < 0) return -1;
         auto value = torrent->value;
+        value->cacheEnabled = true;
         auto info = value->handle.torrent_file();
         if (!info || index < 0 || index >= info->num_files()) return -1;
         const auto size = info->files().file_size(lt::file_index_t(index));
