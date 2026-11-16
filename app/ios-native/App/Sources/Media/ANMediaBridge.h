@@ -8,6 +8,7 @@ extern "C" {
 typedef struct ANMediaToken ANMediaToken;
 typedef struct {
     int32_t width, height, primaries, transfer, dolby_profile, audio_channels, sample_rate;
+    int32_t aspect_num, aspect_den;
     double duration, frame_rate, rotation;
 } ANMediaInfo;
 typedef int32_t (*ANMediaVideoCallback)(void *context, void *pixel_buffer, double seconds);

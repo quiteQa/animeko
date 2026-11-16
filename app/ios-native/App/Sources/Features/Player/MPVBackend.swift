@@ -222,8 +222,10 @@ final class MPVBackend: @unchecked Sendable {
             self.frameState.update { snapshot in
                 snapshot.epoch = epoch; snapshot.metadataReady = false
                 if let info {
-                    snapshot.width = min(1920, info.width)
-                    snapshot.height = max(2, Int(Double(info.height) * Double(snapshot.width) / Double(max(1, info.width))))
+                    let displayWidth = Double(info.width) * Double(info.aspectNumerator) / Double(max(1, info.aspectDenominator))
+                    let scale = min(1, 1920.0 / max(1, max(displayWidth, Double(info.height))))
+                    snapshot.width = max(2, Int(displayWidth * scale))
+                    snapshot.height = max(2, Int(Double(info.height) * scale))
                     snapshot.color = FrameProbeColor(primaries: info.primaries == 1 ? "bt.709" : info.primaries == 5 ? "bt.601-625" : info.primaries == 6 ? "bt.601-525" : nil,
                         transfer: info.transfer == 1 || info.transfer == 6 ? "bt.709" : info.transfer == 13 ? "srgb" : nil,
                         dolbyVisionProfile: info.dolbyProfile > 0 ? Int(info.dolbyProfile) : nil)

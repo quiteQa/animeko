@@ -97,6 +97,8 @@ void Engine::poll() {
                 torrent->condition.notify_all();
             }
             if (auto *resume = lt::alert_cast<lt::save_resume_data_alert>(alert)) {
+                std::lock_guard<std::mutex> lock(torrent->mutex);
+                if (torrent->removed) continue;
                 auto data = lt::write_resume_data_buf(resume->params);
                 const auto temp = torrent->directory + "/.resume.tmp";
                 std::ofstream file(temp, std::ios::binary | std::ios::trunc);
@@ -232,7 +234,7 @@ extern "C" ANITStatus ANITGetStatus(ANITTorrent *torrent) {
     return result;
 }
 extern "C" void ANITSetPaused(ANITTorrent *torrent, int32_t paused) {
-    try { if (paused) torrent->value->handle.pause(); else torrent->value->handle.resume(); } catch (...) {}
+    try { if (paused) torrent->value->handle.pause(); else { torrent->value->handle.clear_error(); torrent->value->handle.resume(); } } catch (...) {}
 }
 extern "C" void ANITSaveResume(ANITTorrent *torrent) {
     try { torrent->value->handle.save_resume_data(lt::torrent_handle::save_info_dict); } catch (...) {}
@@ -248,6 +250,7 @@ extern "C" void ANITRemove(ANITTorrent *torrent, int32_t delete_files) {
     if (!torrent) return;
     auto value = torrent->value;
     if (value->removed.exchange(true)) return;
+    std::lock_guard<std::mutex> lock(value->mutex);
     std::error_code ignored;
     std::filesystem::remove(value->directory + "/.resume", ignored);
     std::filesystem::remove(value->directory + "/.resume.tmp", ignored);

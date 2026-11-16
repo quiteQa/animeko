@@ -288,6 +288,7 @@ final class NativeTorrentManager {
         entry.record.keepDownloading = true; entry.torrent?.pause(false); persist()
     }
     func setPaused(_ entry: Entry, _ paused: Bool) {
+        if !paused { entry.error = nil }
         entry.record.downloadMarked = true; entry.record.paused = paused
         entry.record.keepDownloading = !paused
         entry.torrent?.pause(paused); entry.paused = paused; persist()

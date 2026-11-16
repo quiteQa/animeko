@@ -11,10 +11,10 @@
 #include <string.h>
 #include <math.h>
 
-struct ANMediaToken { atomic_int cancelled; int64_t deadline; };
+struct ANMediaToken { atomic_int cancelled; atomic_int_fast64_t deadline; };
 ANMediaToken *ANMediaTokenCreate(void) {
     ANMediaToken *token = calloc(1, sizeof(*token));
-    if (token) atomic_init(&token->cancelled, 0);
+    if (token) { atomic_init(&token->cancelled, 0); atomic_init(&token->deadline, 0); }
     return token;
 }
 void ANMediaTokenCancel(ANMediaToken *token) { if (token) atomic_store(&token->cancelled, 1); }
@@ -22,7 +22,8 @@ int32_t ANMediaTokenIsCancelled(ANMediaToken *token) { return !token || atomic_l
 void ANMediaTokenDestroy(ANMediaToken *token) { free(token); }
 static int interrupted(void *pointer) {
     ANMediaToken *token = pointer;
-    return ANMediaTokenIsCancelled(token) || (token->deadline && av_gettime_relative() > token->deadline);
+    int64_t deadline = token ? atomic_load(&token->deadline) : 0;
+    return ANMediaTokenIsCancelled(token) || (deadline && av_gettime_relative() > deadline);
 }
 static int open_input(const char *url, const char *headers, ANMediaToken *token, AVFormatContext **format) {
     if (!token || !url) return AVERROR(EINVAL);
@@ -31,7 +32,7 @@ static int open_input(const char *url, const char *headers, ANMediaToken *token,
     *format = avformat_alloc_context();
     if (!*format) return AVERROR(ENOMEM);
     (*format)->interrupt_callback = (AVIOInterruptCB){interrupted, token};
-    token->deadline = av_gettime_relative() + 8000000;
+    atomic_store(&token->deadline, av_gettime_relative() + 8000000);
     AVDictionary *options = NULL;
     if (headers && *headers) av_dict_set(&options, "headers", headers, 0);
     av_dict_set(&options, "rw_timeout", "8000000", 0);
@@ -52,6 +53,8 @@ int32_t ANMediaProbe(const char *url, const char *headers, ANMediaToken *token, 
     if (index < 0) { result = index; goto done; }
     AVStream *stream = format->streams[index];
     AVCodecParameters *parameters = stream->codecpar;
+    AVRational aspect = av_guess_sample_aspect_ratio(format, stream, NULL);
+    info->aspect_num = aspect.num > 0 ? aspect.num : 1; info->aspect_den = aspect.den > 0 ? aspect.den : 1;
     info->width = parameters->width; info->height = parameters->height;
     info->primaries = parameters->color_primaries; info->transfer = parameters->color_trc;
     info->duration = format->duration > 0 ? (double)format->duration / AV_TIME_BASE : 0;
@@ -227,7 +230,7 @@ int32_t ANMediaDecode(const char *url, const char *headers, double start, int32_
     packet = av_packet_alloc();
     if (!packet) { result = AVERROR(ENOMEM); goto done; }
     while (!ANMediaTokenIsCancelled(token)) {
-        token->deadline = av_gettime_relative() + 30000000;
+        atomic_store(&token->deadline, av_gettime_relative() + 30000000);
         result = av_read_frame(format, packet);
         if (result < 0) break;
         AVCodecContext *decoder = packet->stream_index == vi ? vd : packet->stream_index == ai ? ad : NULL;

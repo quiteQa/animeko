@@ -10,6 +10,8 @@ final class NativeMediaToken: @unchecked Sendable {
 struct MediaInspection: Sendable {
     let width: Int
     let height: Int
+    let aspectNumerator: Int
+    let aspectDenominator: Int
     let duration: Double
     let frameRate: Double
     let rotation: Double
@@ -36,7 +38,7 @@ struct MediaInspection: Sendable {
                 let status = ANMediaProbe(url, headers, token.pointer, &info)
                 if token.cancelled { throw CancellationError() }
                 guard status >= 0 else { throw MediaTransportError.failed("无法读取媒体信息 (\(status))") }
-                return Self(width: Int(info.width), height: Int(info.height), duration: max(0, info.duration),
+                return Self(width: Int(info.width), height: Int(info.height), aspectNumerator: max(1, Int(info.aspect_num)), aspectDenominator: max(1, Int(info.aspect_den)), duration: max(0, info.duration),
                     frameRate: info.frame_rate.isFinite && info.frame_rate > 0 ? info.frame_rate : 24,
                     rotation: info.rotation.isFinite ? info.rotation : 0, audioChannels: Int(info.audio_channels),
                     primaries: info.primaries, transfer: info.transfer, dolbyProfile: info.dolby_profile)

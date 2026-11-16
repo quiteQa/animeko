@@ -42,6 +42,7 @@ final class AirPlayHLSWriter: NSObject, AVAssetWriterDelegate, @unchecked Sendab
         outputWriter.initialSegmentStartTime = .zero
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: outputWidth, AVVideoHeightKey: outputHeight,
+            AVVideoPixelAspectRatioKey: [AVVideoPixelAspectRatioHorizontalSpacingKey: info.aspectNumerator, AVVideoPixelAspectRatioVerticalSpacingKey: info.aspectDenominator],
             AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
                 AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2],
