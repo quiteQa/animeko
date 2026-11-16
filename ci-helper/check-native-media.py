@@ -25,6 +25,7 @@ app = root / "app/ios-native/App"
 sources = sorted((app / "Sources/Media").glob("*.swift"))
 sources += sorted((app / "Sources/Features/Player/Support").glob("*.swift"))
 sources.append(app / "Sources/Common/Diagnostics.swift")
+sources += [app / "Sources/Features/Player/MPVBackend.swift", app / "Sources/Features/Player/MPVPlayer.swift"]
 subprocess.run(["xcrun", "swiftc", "-typecheck", "-swift-version", "5", "-sdk", sdk,
                 "-target", "arm64-apple-ios26.0", "-import-objc-header",
                 str(app / "Sources/Media/AnimekoNative-Bridging-Header.h"),

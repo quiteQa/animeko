@@ -65,13 +65,13 @@ struct PlayerScreen: View {
                 PlayerControls(
                     model: model,
                     // mpv 的画中画在 M2 实现 (见 GOALS.md)
-                    canStartPictureInPicture: false,
+                    canStartPictureInPicture: model.canStartPictureInPicture,
                     isLocked: $isLocked,
                     onClosePage: onClosePage,
                     onExitFullscreen: onExitFullscreen,
                     onShowSources: { showsSourcePicker = true },
                     onShowWatchTogether: { showsWatchTogether = true },
-                    onPictureInPicture: {},
+                    onPictureInPicture: { model.startPictureInPicture() },
                     onInteraction: scheduleHideControls,
                 )
                 .environment(\.colorScheme, .dark)

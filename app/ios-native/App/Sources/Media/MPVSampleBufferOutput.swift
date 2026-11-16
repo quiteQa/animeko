@@ -15,6 +15,7 @@ final class VideoFrameState: @unchecked Sendable {
         var position: Double = 0
         var duration: Double = 0
         var paused = true
+        var poolDrops = 0
     }
     private let lock = NSLock()
     private var snapshot = Snapshot()
@@ -118,7 +119,7 @@ final class MPVSampleBufferOutput: @unchecked Sendable {
         var buffer: CVPixelBuffer?
         let limit = [kCVPixelBufferPoolAllocationThresholdKey as String: 3] as CFDictionary
         let allocation = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, pool, limit, &buffer)
-        guard allocation == kCVReturnSuccess, let buffer else { skip(renderer); return }
+        guard allocation == kCVReturnSuccess, let buffer else { state.update { $0.poolDrops += 1 }; skip(renderer); return }
         let lock = CVPixelBufferLockBaseAddress(buffer, [])
         guard lock == kCVReturnSuccess else { fail("视频缓冲区写入失败"); skip(renderer); return }
         var frameInfo = mpv_render_frame_info()

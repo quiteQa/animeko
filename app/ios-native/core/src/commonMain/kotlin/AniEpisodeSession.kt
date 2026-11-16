@@ -587,6 +587,7 @@ class AniEpisodeSession internal constructor(
             episodeTitles = listOf(episode.title).filter { it.isNotBlank() },
             episodeSort = episode.sort,
             episodeEp = episode.ep,
+            videoExtensions = setOf(".mp4", ".mkv", ".avi", ".mpeg", ".mov", ".flv", ".wmv", ".webm", ".rm", ".rmvb", ".m4v", ".ts", ".m2ts", ".mpg", ".ogv"),
         ) ?: return -1
         return paths.indexOf(selected)
     }

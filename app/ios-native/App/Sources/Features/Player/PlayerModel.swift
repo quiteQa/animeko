@@ -90,6 +90,75 @@ final class PlayerModel {
     /// 当前剧集的 Kotlin 会话, 供手动查找使用.
     var currentSession: AniEpisodeSession? { session }
 
+    @ObservationIgnored private var torrentLease: TorrentPlaybackLease?
+    @ObservationIgnored private(set) var playbackURL: String?
+    @ObservationIgnored private weak var services: AppServices?
+    var pageVisible = false
+    var canStartPictureInPicture: Bool { phase == .playing && player.canStartPictureInPicture && !airPlay.isConnected }
+    private(set) var pictureInPictureActive = false
+    let airPlay = AirPlaySession()
+    @ObservationIgnored private let performance = PlaybackPerformanceReport()
+    var audioTracks: [MPVPlayer.Track] = []
+    var subtitleTracks: [MPVPlayer.Track] = []
+    func selectTrack(_ kind: String, id: Int?) {
+        player.selectTrack(kind: kind, id: id)
+        mediaWork.run { [weak self] token in
+            guard let self else { return }; await player.flushCommands()
+            guard mediaWork.accepts(token) else { return }; refreshTracks()
+        }
+    }
+    private func refreshTracks() { audioTracks = player.tracks(kind: "audio"); subtitleTracks = player.tracks(kind: "sub") }
+    var performanceExport: URL?
+    func exportPerformanceReport() {
+        do { performanceExport = try performance.export(measurements: player.measurements) }
+        catch { toastMessage = "性能报告导出失败" }
+    }
+    var showsAirPlay = false
+
+    func attach(to services: AppServices) {
+        self.services = services; pageVisible = true
+        player.onRestorePictureInPicture = { [weak self] in
+            guard let self, let services = self.services else { return false }
+            if !pageVisible { services.restoredPlayback = RestoredPlayback(model: self) }
+            for _ in 0..<30 {
+                if pageVisible && player.videoView.window != nil { return true }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return false
+        }
+        player.onPictureInPictureChanged = { [weak self] active in
+            guard let self else { return }
+            pictureInPictureActive = active
+            if active { self.services?.backgroundPlayback = self }
+            else if !airPlay.isConnected {
+                self.services?.backgroundPlayback = nil
+                if !pageVisible { stop() }
+            }
+        }
+        player.onPictureInPictureFailure = { [weak self] in self?.toastMessage = $0 }
+        airPlay.onConnection = { [weak self] connected, position in
+            guard let self else { return }
+            if connected {
+                player.stopPictureInPicture(); self.services?.backgroundPlayback = self
+                player.pause(); player.setVideoEnabled(false)
+            } else {
+                player.setVideoEnabled(true); player.seek(to: position)
+                if pageVisible { player.play() }
+                self.services?.backgroundPlayback = nil
+                if !pageVisible { stop() }
+            }
+        }
+        airPlay.onProgress = { [weak self] time, playing in
+            guard let self else { return }; currentTime = time; isPlaying = playing; reportProgress()
+        }
+    }
+    func pageDidDisappear() {
+        pageVisible = false
+        if player.retainsPlayback || airPlay.isConnected { services?.backgroundPlayback = self }
+        else { stop() }
+    }
+    func startPictureInPicture() { player.startPictureInPicture() }
+
     @ObservationIgnored private var core: AniClient?
     @ObservationIgnored private var settings: () -> AniSettings? = { nil }
     @ObservationIgnored private var session: AniEpisodeSession?
@@ -140,6 +209,14 @@ final class PlayerModel {
             isDanmakuEnabled = current.danmakuEnabled
             enhancementMode = VideoEnhancementMode(setting: current.videoEnhancementDefaultMode)
         }
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        playerTasks.append(Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                performance.sample(player: player)
+                try? await Task.sleep(for: .seconds(5))
+            }
+        })
         observePlayer()
         observeWatchTogether(core.watchTogether)
         openSession()
@@ -152,6 +229,10 @@ final class PlayerModel {
 
     /// 缓存正在播放的资源. 进度在 "我的 > 缓存管理" 查看.
     func downloadSelected() {
+        if let torrentLease {
+            NativeTorrentManager.shared.retainDownload(torrentLease.taskID)
+            toastMessage = "已加入 BT 缓存，可在缓存管理中暂停或删除"; return
+        }
         guard let session else { return }
         sessionWork.run { [weak self] token in
             do {
@@ -224,7 +305,7 @@ final class PlayerModel {
     }
 
     func togglePlayback() {
-        isPlaying ? player.pause() : player.play()
+        if airPlay.isConnected { airPlay.togglePlayback() } else { isPlaying ? player.pause() : player.play() }
     }
 
     /// 是否已加载媒体.
@@ -234,7 +315,7 @@ final class PlayerModel {
 
     func setPlaybackRate(_ rate: Float) {
         playbackRate = rate
-        player.setSpeed(Double(rate))
+        if airPlay.isConnected { airPlay.setRate(rate) } else { player.setSpeed(Double(rate)) }
     }
 
     /// 切换到相邻的速度档位. `step` 为 1 加速, -1 减速.
@@ -273,7 +354,7 @@ final class PlayerModel {
 
     func seek(to seconds: TimeInterval) {
         guard !isStopped, seconds.isFinite else { return }
-        player.seek(to: seconds)
+        if airPlay.isConnected { airPlay.seek(to: seconds) } else { player.seek(to: seconds) }
     }
 
     func skip(by seconds: TimeInterval) {
@@ -283,7 +364,7 @@ final class PlayerModel {
     /// 弹幕层按此读取播放器时间. 没有媒体时为 `nil`.
     func playbackTime() -> TimeInterval? {
         guard hasMedia else { return nil }
-        let seconds = player.position
+        let seconds = airPlay.isConnected ? currentTime : player.position
         return seconds.isFinite ? seconds : nil
     }
 
@@ -340,6 +421,8 @@ final class PlayerModel {
     func stop() {
         guard !isStopped else { return }
         isStopped = true
+        airPlay.stop()
+        if services?.backgroundPlayback === self { services?.backgroundPlayback = nil }
         stoppedTasks = sessionWork.close() + mediaWork.close()
         manualBrowse.reset()
         transitionTask?.cancel()
@@ -447,11 +530,14 @@ final class PlayerModel {
         self.session = nil
         progressWriter = nil
         // 先停止读取当前代理资源, 再释放 Kotlin 解析会话.
+        airPlay.stop()
         player.stop()
+        let lease = torrentLease; torrentLease = nil; playbackURL = nil
         let player = player
         let closing = Task {
             for task in tasks { await task.value }
             await player.flushCommands()
+            lease?.release()
             await writer?.flush()
             session?.close()
         }
@@ -495,6 +581,8 @@ final class PlayerModel {
         let previousTasks = mediaWork.invalidate()
         reportProgress(force: true)
         let switchingAt = hasMedia ? currentTime : nil
+        airPlay.stop()
+        let previousLease = torrentLease; torrentLease = nil
         player.stop()
         phase = .resolving
         let sessionToken = sessionWork.token
@@ -503,6 +591,7 @@ final class PlayerModel {
             for task in previousTasks { await task.value }
             guard let self, mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { return }
             await player.flushCommands()
+            previousLease?.release()
             guard mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { return }
             do {
                 let resumeAt: TimeInterval
@@ -516,7 +605,17 @@ final class PlayerModel {
                 self.playable = playable
                 resetSkipState()
                 player.setSpeed(Double(playbackRate))
-                player.load(url: playable.url, headers: playable.headers, start: resumeAt, autoplay: !holdsForWatchTogether())
+                var url = playable.url
+                if playable.torrent {
+                    let lease = try await NativeTorrentManager.shared.open(uri: playable.url, title: playable.title,
+                        headers: playable.headers, subject: target.subject.id, episode: target.episode.id) { paths in
+                            Int(try await session.selectTorrentFile(paths: paths))
+                        }
+                    guard mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { lease.release(); return }
+                    torrentLease = lease; url = lease.url.absoluteString
+                }
+                playbackURL = url
+                player.load(url: url, headers: playable.headers, start: resumeAt, autoplay: !holdsForWatchTogether())
                 currentTime = resumeAt
                 // phase 由 mpv 的 PLAYBACK_RESTART 确认, 命令提交成功不代表媒体可播放.
             } catch {
@@ -569,7 +668,12 @@ final class PlayerModel {
         player.onChange = { [weak self] in self?.onPlayerChanged() }
         player.onReady = { [weak self] in
             guard let self, !isStopped, session != nil, phase == .resolving else { return }
+            for subtitle in playable?.subtitles ?? [] { player.addSubtitle(url: subtitle.url, title: subtitle.language ?? "字幕") }
             phase = .playing
+            mediaWork.run { [weak self] token in
+                guard let self else { return }; await player.flushCommands()
+                guard mediaWork.accepts(token) else { return }; refreshTracks()
+            }
             startPlaybackAfterLoad()
         }
         player.onEndOfFile = { [weak self] in
@@ -584,11 +688,11 @@ final class PlayerModel {
             center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.reportProgress(force: true)
-                    self?.player.setVideoEnabled(false)
+                    if self?.player.retainsPlayback != true { self?.player.setVideoEnabled(false) }
                 }
             },
             center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.player.setVideoEnabled(true) }
+                MainActor.assumeIsolated { if self?.airPlay.isConnected != true { self?.player.setVideoEnabled(true) } }
             },
             center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
                 MainActor.assumeIsolated { self?.handleAudioInterruption(notification) }
@@ -628,6 +732,7 @@ final class PlayerModel {
     }
 
     private func onPlayerChanged() {
+        guard !airPlay.isConnected else { return }
         let playing = player.hasMedia && !player.isPaused
         if playing != isPlaying { onPlayingChanged(playing) }
         guard phase == .playing, player.hasMedia else { return }
@@ -652,6 +757,7 @@ final class PlayerModel {
 
     private func onLoadFailed(_ message: String) {
         guard !isStopped, phase == .playing || phase == .resolving else { return }
+        torrentLease?.release(); torrentLease = nil
         phase = .failed("视频加载失败 (\(message)), 请换一个资源")
     }
 

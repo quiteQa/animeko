@@ -69,6 +69,7 @@ final class MediaHTTPServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "ani.media.http", qos: .userInitiated)
     private var listener: NWListener?
     private var port: UInt16?
+    private var startTimeout: DispatchWorkItem?
     private var waiters: [CheckedContinuation<UInt16, Error>] = []
     private var providers: [String: Provider] = [:]
     private var connections: [UUID: Connection] = [:]
@@ -114,10 +115,11 @@ final class MediaHTTPServer: @unchecked Sendable {
                     self.listener = listener
                     listener.newConnectionHandler = { [weak self] in self?.accept($0) }
                     listener.stateUpdateHandler = { [weak self, weak listener] state in
-                        guard let self else { return }
+                        guard let self, self.listener === listener else { return }
                         switch state {
                         case .ready:
                             guard let port = listener?.port?.rawValue else { return }
+                            self.startTimeout?.cancel(); self.startTimeout = nil
                             self.port = port
                             let waiters = self.waiters; self.waiters.removeAll()
                             waiters.forEach { $0.resume(returning: port) }
@@ -128,6 +130,14 @@ final class MediaHTTPServer: @unchecked Sendable {
                         default: break
                         }
                     }
+                    let timeout = DispatchWorkItem { [weak self, weak listener] in
+                        guard let self, self.port == nil, self.listener === listener else { return }
+                        self.listener = nil; listener?.cancel()
+                        let waiters = self.waiters; self.waiters.removeAll()
+                        waiters.forEach { $0.resume(throwing: MediaTransportError.timedOut) }
+                    }
+                    self.startTimeout = timeout
+                    self.queue.asyncAfter(deadline: .now() + 10, execute: timeout)
                     listener.start(queue: self.queue)
                 } catch {
                     let waiters = self.waiters; self.waiters.removeAll()

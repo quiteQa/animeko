@@ -26,6 +26,8 @@ struct EpisodePlayerPage: View {
         _model = State(initialValue: PlayerModel(target: target))
     }
 
+    init(model: PlayerModel) { _model = State(initialValue: model) }
+
     private var currentSubject: AniSubject { subject.detail?.subject ?? model.target.subject }
 
     var body: some View {
@@ -67,6 +69,7 @@ struct EpisodePlayerPage: View {
             .ignoresSafeArea(.container, edges: .bottom)
         }
         .background(Color(.systemGroupedBackground))
+        .background { AirPlayTransportSurface(player: model.airPlay.player).frame(width: 1, height: 1).allowsHitTesting(false) }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .overlay {
@@ -82,6 +85,12 @@ struct EpisodePlayerPage: View {
                 .transition(.opacity)
             }
         }
+        .sheet(isPresented: Binding(get: { model.performanceExport != nil }, set: { if !$0 { model.performanceExport = nil } })) {
+            if let url = model.performanceExport {
+                NavigationStack { VStack(spacing: 20) { Text("报告只包含设备与播放性能指标"); ShareLink(item: url) { Label("分享性能报告", systemImage: "square.and.arrow.up") } }.padding().navigationTitle("性能报告") }
+            }
+        }
+        .sheet(isPresented: $model.showsAirPlay) { AirPlaySheet(model: model) }
         .sheet(isPresented: $showsSourcePicker) {
             SourcePickerSheet(model: model)
                 .presentationDetents([.medium, .large])
@@ -114,6 +123,7 @@ struct EpisodePlayerPage: View {
         .onAppear { UIDevice.current.beginGeneratingDeviceOrientationNotifications() }
         .task {
             let services = services
+            model.attach(to: services)
             model.start(core: services.core, settings: { services.settings })
         }
         .task { await subject.observe(subjectId: model.target.subject.id, core: services.core) }
@@ -131,7 +141,7 @@ struct EpisodePlayerPage: View {
         .onDisappear {
             UIDevice.current.endGeneratingDeviceOrientationNotifications()
             OrientationLock.restorePortrait()
-            model.stop()
+            model.pageDidDisappear()
         }
     }
 
@@ -322,6 +332,9 @@ private struct InlinePlayer: View {
 
                     Spacer()
 
+                    if model.canStartPictureInPicture {
+                        iconButton("pip.enter", label: "画中画") { model.startPictureInPicture() }
+                    }
                     PlayerMoreMenu(model: model) {
                         Image(systemName: "ellipsis")
                             .font(.subheadline.weight(.semibold))

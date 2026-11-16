@@ -110,7 +110,7 @@ typedef struct {
     SwrContext *resample;
     CVPixelBufferPoolRef pool;
     int width, height;
-    double start, origin, audio_next;
+    double start, origin, audio_next, video_next;
     void *context;
     ANMediaVideoCallback video;
     ANMediaAudioCallback audio;
@@ -119,8 +119,12 @@ typedef struct {
 
 static int emit_video(DecodeOutput *output, AVFrame *frame, AVStream *stream) {
     if (ANMediaTokenIsCancelled(output->token)) return AVERROR_EXIT;
-    double pts = frame->best_effort_timestamp == AV_NOPTS_VALUE ? 0 : frame->best_effort_timestamp * av_q2d(stream->time_base);
-    pts -= output->origin + output->start;
+    if (frame->color_trc == AVCOL_TRC_SMPTE2084 || frame->color_trc == AVCOL_TRC_ARIB_STD_B67 ||
+        av_frame_get_side_data(frame, AV_FRAME_DATA_DOVI_RPU_BUFFER) || av_frame_get_side_data(frame, AV_FRAME_DATA_DOVI_METADATA)) return AVERROR(ENOTSUP);
+    double pts = frame->best_effort_timestamp == AV_NOPTS_VALUE ? output->video_next
+        : frame->best_effort_timestamp * av_q2d(stream->time_base) - output->origin - output->start;
+    AVRational rate = stream->avg_frame_rate;
+    output->video_next = pts + (rate.num > 0 && rate.den > 0 ? av_q2d(av_inv_q(rate)) : 1.0 / 24);
     if (pts < -0.001) return 0;
     AVFrame *software = NULL;
     if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {

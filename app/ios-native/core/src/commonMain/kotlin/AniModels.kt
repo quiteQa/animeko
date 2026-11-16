@@ -185,7 +185,7 @@ data class AniSubtitle(
 )
 
 /**
- * 已解析的可播放地址. Swift 侧用它创建 `AVURLAsset`, [headers] 通过 `AVURLAssetHTTPHeaderFieldsKey` 传入.
+ * 已解析的可播放地址. Swift 侧将地址、请求头和字幕交给原生 mpv 会话.
  */
 data class AniPlayable(
     val url: String,

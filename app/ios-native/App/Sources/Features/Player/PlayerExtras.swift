@@ -71,6 +71,28 @@ struct PlayerMoreMenu<Label: View>: View {
                 SwiftUI.Label("外部链接", systemImage: "arrow.up.forward.app")
             }
 
+            if !model.audioTracks.isEmpty {
+                Menu("音轨", systemImage: "waveform") {
+                    ForEach(model.audioTracks) { track in
+                        Button { model.selectTrack("audio", id: track.id) } label: {
+                            if track.selected { SwiftUI.Label(track.title, systemImage: "checkmark") } else { Text(track.title) }
+                        }
+                    }
+                }.disabled(model.airPlay.isConnected)
+            }
+            if !model.subtitleTracks.isEmpty {
+                Menu("字幕", systemImage: "captions.bubble") {
+                    Button("关闭字幕") { model.selectTrack("sub", id: nil) }
+                    ForEach(model.subtitleTracks) { track in
+                        Button { model.selectTrack("sub", id: track.id) } label: {
+                            if track.selected { SwiftUI.Label(track.title, systemImage: "checkmark") } else { Text(track.title) }
+                        }
+                    }
+                }.disabled(model.airPlay.isConnected)
+            }
+            Button("AirPlay 视频投送", systemImage: "airplay.video") { model.showsAirPlay = true }
+                .disabled(model.playbackURL == nil)
+            Button("导出性能报告", systemImage: "square.and.arrow.up") { model.exportPerformanceReport() }
             Button("下载", systemImage: "arrow.down.circle") {
                 model.downloadSelected()
             }

@@ -1,14 +1,6 @@
 import Foundation
 import Observation
 
-enum MediaIO {
-    static func run<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(with: Result { try operation() }) }
-        }
-    }
-}
-
 final class NativeTorrentEngine: @unchecked Sendable {
     let pointer: OpaquePointer
     private init(_ pointer: OpaquePointer) { self.pointer = pointer }
@@ -147,6 +139,8 @@ final class NativeTorrentManager {
         let episodeID: Int32
         var fileIndex: Int32?
         var keepDownloading = false
+        var downloadMarked = false
+        var paused = false
     }
     @MainActor @Observable
     final class Entry: Identifiable {
@@ -161,7 +155,9 @@ final class NativeTorrentManager {
         @ObservationIgnored var torrent: NativeTorrent?
         @ObservationIgnored var opening: Task<NativeTorrent, Error>?
         @ObservationIgnored var readers = 0
-        init(_ record: Record) { self.record = record }
+        @ObservationIgnored var waiters = 0
+        @ObservationIgnored var deleted = false
+        init(_ record: Record) { self.record = record; paused = record.paused }
     }
     static let shared = NativeTorrentManager()
     private(set) var entries: [Entry] = []
@@ -193,7 +189,7 @@ final class NativeTorrentManager {
                     entry.speed = status.download_rate
                     entry.progress = status.wanted > 0 ? min(1, Double(status.completed) / Double(status.wanted)) : 0
                     if status.failed != 0 { entry.error = "BT 任务发生错误，可暂停后重试" }
-                    if entry.readers == 0 { ANITTrimReadCache(torrent.pointer) }
+                    if entry.readers == 0 && entry.waiters == 0 { ANITTrimReadCache(torrent.pointer) }
                     if ticks % 30 == 0 { torrent.save() }
                 }
                 ticks += 1
@@ -216,6 +212,9 @@ final class NativeTorrentManager {
             let engine = try await getEngine()
             let torrent = try await engine.add(entry.record.uri, headers: headers,
                 directory: root.appendingPathComponent("Content", isDirectory: true))
+            do { _ = try await torrent.files(); try Task.checkCancellation() }
+            catch { torrent.pause(true); torrent.save(); throw error }
+            guard !entry.deleted else { torrent.remove(); throw CancellationError() }
             let files = try await torrent.files()
             if let index = entry.record.fileIndex, let file = files.first(where: { $0.id == index }) { try await torrent.select(file) }
             entry.torrent = torrent
@@ -235,13 +234,26 @@ final class NativeTorrentManager {
         if !restoring { await restore() }
         let entry = record(uri: uri, title: title, subject: subject, episode: episode)
         entry.error = nil
-        let torrent = try await prepare(entry, headers: headers)
+        entry.waiters += 1
+        defer {
+            entry.waiters -= 1
+            if entry.waiters == 0 && entry.readers == 0 && !entry.record.keepDownloading { entry.torrent?.pause(true) }
+        }
+        let torrent = try await withTaskCancellationHandler {
+            let result = try await prepare(entry, headers: headers)
+            try Task.checkCancellation(); return result
+        } onCancel: {
+            Task { @MainActor in
+                if entry.waiters <= 1 && entry.readers == 0 && !entry.record.keepDownloading { entry.opening?.cancel() }
+            }
+        }
         let files = try await torrent.files()
         let selected = try await selectFile(files.map(\.path))
         try Task.checkCancellation()
         guard selected >= 0, selected < files.count else { throw MediaTransportError.failed("种子中未找到当前剧集的视频") }
         let file = files[selected]
         try await torrent.select(file)
+        torrent.pause(false)
         entry.record.fileIndex = file.id; entry.readers += 1; persist()
         let source = TorrentByteSource(torrent: torrent, file: file)
         do {
@@ -257,14 +269,17 @@ final class NativeTorrentManager {
     }
     func retainDownload(_ id: UUID) {
         guard let entry = entries.first(where: { $0.id == id }) else { return }
+        entry.record.downloadMarked = true; entry.record.paused = false
         entry.record.keepDownloading = true; entry.torrent?.pause(false); persist()
     }
     func setPaused(_ entry: Entry, _ paused: Bool) {
+        entry.record.downloadMarked = true; entry.record.paused = paused
         entry.record.keepDownloading = !paused
         entry.torrent?.pause(paused); entry.paused = paused; persist()
         if !paused { Task { do { _ = try await prepare(entry, headers: [:]) } catch { entry.error = "BT 任务恢复失败" } } }
     }
     func delete(_ entry: Entry) {
+        entry.deleted = true
         entry.opening?.cancel(); entry.torrent?.remove()
         entries.removeAll { $0.id == entry.id }; persist()
     }
