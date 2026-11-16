@@ -106,6 +106,19 @@ final class MediaRuntimeTests: XCTestCase {
         XCTAssertLessThan(result.duration, 4)
     }
 
+    func testVODTimebaseStopsWhenPausedAndAppliesPlaybackRate() throws {
+        let pip = MPVPictureInPicture()
+        pip.update(position: 10, duration: 60, speed: 2, paused: true)
+        let timebase = try XCTUnwrap(pip.view.displayLayer.controlTimebase)
+        XCTAssertEqual(CMTimebaseGetRate(timebase), 0)
+        XCTAssertEqual(CMTimebaseGetTime(timebase).seconds, 10, accuracy: 0.001)
+        pip.update(position: 10, duration: 60, speed: 2, paused: false)
+        XCTAssertEqual(CMTimebaseGetRate(timebase), 2)
+        pip.update(position: 40, duration: 60, speed: 0.5, paused: true)
+        XCTAssertEqual(CMTimebaseGetTime(timebase).seconds, 40, accuracy: 0.001)
+        pip.reset()
+    }
+
     func testHDRPreflightRejectsEightBitAirPlayConversion() async throws {
         let url = try fixture("hdr10-pattern").absoluteString
         let info = try await MediaInspection.inspect(url: url, headers: [:]); XCTAssertTrue(info.isHDR)

@@ -54,15 +54,22 @@ final class MPVPlayer {
 
     func load(url: String, headers: [String: String], start: Double, autoplay: Bool) {
         guard !isDestroyed else { return }
-        stopPictureInPicture()
+        let preservingPiP = pictureInPicture.active
+        if !preservingPiP { stopPictureInPicture() }
         inspectionTask?.cancel(); finishSeeks()
-        generation = UUID()
+        generation = UUID(); frameEpoch = UUID()
+        pictureInPicture.flush(generation: generation, epoch: frameEpoch)
         inspection = nil; inspectionComplete = false
         let expected = generation
         inspectionTask = Task { [weak self] in
             let info = try? await MediaInspection.inspect(url: url, headers: headers)
             guard let self, !Task.isCancelled, generation == expected else { return }
-            inspection = info; inspectionComplete = true; onChange?()
+            inspection = info; inspectionComplete = true
+            if preservingPiP {
+                if canStartPictureInPicture { backend.setSampleOutput(true, info: info, epoch: frameEpoch) }
+                else if hasMedia { stopPictureInPicture(); onPictureInPictureFailure?("当前媒体不支持 SDR 画中画输出") }
+            }
+            onChange?()
         }
         measurements.beginLoad(at: ProcessInfo.processInfo.systemUptime)
         position = start.isFinite ? max(0, start) : 0
@@ -71,13 +78,14 @@ final class MPVPlayer {
         hasMedia = false
         isBuffering = true
         isPaused = !autoplay
-        backend.load(url: url, headers: MPVRequestHeaders(headers), start: position, autoplay: autoplay, generation: generation)
+        backend.load(url: url, headers: MPVRequestHeaders(headers), start: position, autoplay: autoplay, generation: generation, epoch: frameEpoch)
         onChange?()
     }
 
-    func stop() {
+    func stop(preservePictureInPicture: Bool = false) {
         guard !isDestroyed else { return }
-        stopPictureInPicture(); inspectionTask?.cancel(); finishSeeks()
+        if !preservePictureInPicture || !pictureInPicture.active { stopPictureInPicture() }
+        inspectionTask?.cancel(); finishSeeks()
         generation = UUID()
         measurements.stop()
         backend.stop(generation: generation)
@@ -100,8 +108,7 @@ final class MPVPlayer {
         measurements.beginSeek(at: ProcessInfo.processInfo.systemUptime)
         frameEpoch = UUID()
         pictureInPicture.flush(generation: generation, epoch: frameEpoch)
-        backend.invalidateFrames(epoch: frameEpoch)
-        backend.seek(to: max(0, duration > 0 ? min(duration, seconds) : seconds))
+        backend.seek(to: max(0, duration > 0 ? min(duration, seconds) : seconds), epoch: frameEpoch)
     }
 
     func seekAndWait(to seconds: Double) async {
@@ -212,11 +219,14 @@ final class MPVPlayer {
                 }
             case .sampleFailure(let message):
                 stopPictureInPicture(); onPictureInPictureFailure?(message)
-            case .ready:
-                measurements.ready(at: ProcessInfo.processInfo.systemUptime)
-                finishSeeks()
+            case .ready(let readyEpoch):
+                if readyEpoch == frameEpoch { measurements.ready(at: ProcessInfo.processInfo.systemUptime); finishSeeks() }
                 hasMedia = true
                 isBuffering = false
+                if pictureInPicture.active && inspectionComplete {
+                    if canStartPictureInPicture { backend.setSampleOutput(true, info: inspection, epoch: frameEpoch) }
+                    else { stopPictureInPicture(); onPictureInPictureFailure?("当前媒体不支持 SDR 画中画输出") }
+                }
                 onReady?()
             case .ended: onEndOfFile?()
             case .failed(let reason):

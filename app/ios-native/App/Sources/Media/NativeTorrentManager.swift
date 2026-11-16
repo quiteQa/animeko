@@ -150,7 +150,7 @@ final class NativeTorrentManager {
     @MainActor @Observable
     final class Entry: Identifiable {
         var record: Record
-        var id: UUID { record.id }
+        nonisolated let id: UUID
         var progress: Double = 0
         var speed: Int64 = 0
         var paused = false
@@ -162,7 +162,7 @@ final class NativeTorrentManager {
         @ObservationIgnored var readers = 0
         @ObservationIgnored var waiters = 0
         @ObservationIgnored var deleted = false
-        init(_ record: Record) { self.record = record; paused = record.paused }
+        init(_ record: Record) { self.record = record; id = record.id; paused = record.paused }
     }
     static let shared = NativeTorrentManager()
     private(set) var entries: [Entry] = []

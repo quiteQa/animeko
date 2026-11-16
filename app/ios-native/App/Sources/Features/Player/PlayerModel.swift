@@ -168,6 +168,7 @@ final class PlayerModel {
         }
         airPlay.onProgress = { [weak self] time, playing in
             guard let self else { return }; currentTime = time; isPlaying = playing; reportProgress()
+            if playing { loadSkipSegmentsIfNeeded(); updateAutoSkip() }
         }
     }
     func pageDidDisappear() {
@@ -551,7 +552,7 @@ final class PlayerModel {
         progressWriter = nil
         // 先停止读取当前代理资源, 再释放 Kotlin 解析会话.
         airPlay.stop()
-        player.stop()
+        player.stop(preservePictureInPicture: resumePiPAfterLoad)
         let lease = torrentLease; torrentLease = nil; playbackURL = nil
         let player = player
         let closing = Task {
@@ -567,7 +568,7 @@ final class PlayerModel {
     }
 
     private func resetEpisodeState() {
-        player.stop()
+        player.stop(preservePictureInPicture: resumePiPAfterLoad)
         phase = .fetching
         candidates = []
         preferredCandidates = []
@@ -603,7 +604,7 @@ final class PlayerModel {
         let switchingAt = hasMedia ? currentTime : nil
         airPlay.stop()
         let previousLease = torrentLease; torrentLease = nil
-        player.stop()
+        player.stop(preservePictureInPicture: resumePiPAfterLoad)
         phase = .resolving
         let sessionToken = sessionWork.token
         mediaWork.run { [weak self] token in
@@ -736,7 +737,7 @@ final class PlayerModel {
         switch type {
         case .began:
             interruptionToken = isPlaying ? sessionWork.token : nil
-            player.pause()
+            if airPlay.isConnected { airPlay.setPlaying(false) } else { player.pause() }
             reportProgress(force: true)
         case .ended:
             let options = (notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
@@ -745,7 +746,7 @@ final class PlayerModel {
             guard shouldResume, let interruptionToken, sessionWork.accepts(interruptionToken) else { return }
             do {
                 try AVAudioSession.sharedInstance().setActive(true)
-                player.play()
+                if airPlay.isConnected { airPlay.setPlaying(true) } else { player.play() }
             } catch { toastMessage = "音频恢复失败, 请点按播放重试" }
         @unknown default: break
         }
@@ -755,7 +756,9 @@ final class PlayerModel {
         guard !airPlay.isConnected else { return }
         if resumePiPAfterLoad, phase == .playing, player.inspectionComplete {
             resumePiPAfterLoad = false
-            if player.canStartPictureInPicture { player.startPictureInPicture() }
+            if player.canStartPictureInPicture {
+                if !player.retainsPlayback { player.startPictureInPicture() }
+            }
             else {
                 toastMessage = "下一集不支持当前画中画输出，请返回播放页"
                 services?.backgroundPlayback = nil
@@ -839,7 +842,7 @@ final class PlayerModel {
             return
         }
         guard directive.episodeId == target.episode.id, phase == .playing, hasMedia else { return }
-        let local = player.position.isFinite ? player.position : currentTime
+        let local = airPlay.isConnected ? currentTime : player.position.isFinite ? player.position : currentTime
         let targetSeconds = TimeInterval(directive.positionMillis) / 1000
         var appliedDelta: Int64?
         if directive.forceSeek || abs(local - targetSeconds) > 3 {
@@ -847,7 +850,9 @@ final class PlayerModel {
             appliedDelta = Int64((targetSeconds - local) * 1000)
         }
         if abs(directive.playbackRate - playbackRate) > 0.001 { setPlaybackRate(directive.playbackRate) }
-        if directive.paused {
+        if airPlay.isConnected {
+            airPlay.setPlaying(!directive.paused)
+        } else if directive.paused {
             if !player.isPaused { player.pause() }
         } else if player.isPaused {
             player.play()
@@ -861,7 +866,7 @@ final class PlayerModel {
     private func reportWatching(to watchTogether: AniWatchTogether) {
         guard session != nil else { return }
         let loaded = phase == .playing && hasMedia
-        let position = loaded && player.position.isFinite ? player.position : 0
+        let position = loaded ? (airPlay.isConnected ? currentTime : player.position.isFinite ? player.position : 0) : 0
         watchTogether.reportWatching(
             subjectId: target.subject.id,
             episodeId: target.episode.id,
@@ -870,8 +875,8 @@ final class PlayerModel {
             episodeName: target.episode.displayName,
             positionMillis: Int64(position * 1000),
             durationMillis: loaded ? Int64(duration * 1000) : 0,
-            paused: !loaded || player.isPaused,
-            buffering: loaded && player.isBuffering,
+            paused: !loaded || (airPlay.isConnected ? !isPlaying : player.isPaused),
+            buffering: loaded && !airPlay.isConnected && player.isBuffering,
             playbackRate: playbackRate,
         )
     }

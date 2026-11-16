@@ -7,7 +7,7 @@ import QuartzCore
 final class MPVBackend: @unchecked Sendable {
     enum Event {
         case property(String, Double)
-        case ready
+        case ready(UUID)
         case sampleFailure(String)
         case ended
         case failed(String)
@@ -118,10 +118,10 @@ final class MPVBackend: @unchecked Sendable {
         Diagnostics.log("mpv: 初始化失败 (\(status))")
     }
 
-    func load(url: String, headers: MPVRequestHeaders, start: Double, autoplay: Bool, generation: UUID) {
+    func load(url: String, headers: MPVRequestHeaders, start: Double, autoplay: Bool, generation: UUID, epoch: UUID) {
         queue.async {
             self.generation = generation
-            self.frameState.update { $0.generation = generation; $0.metadataReady = false }
+            self.frameState.update { $0.generation = generation; $0.epoch = epoch; $0.metadataReady = false; $0.color = FrameProbeColor(primaries: nil, transfer: nil, dolbyVisionProfile: nil) }
             self.expectedEntry = nil
             self.activeEntry = nil
             self.reportedEnd = false
@@ -254,12 +254,11 @@ final class MPVBackend: @unchecked Sendable {
         _ = mpv_set_property_string(handle, "hwdec", enabled ? "videotoolbox-copy" : "videotoolbox")
         frameState.update { $0.metadataReady = enabled && $0.color.verdict == .sdr }
         if status < 0 { deliver([.sampleFailure("切换视频输出失败 (\(status))")]) }
-        if enabled { sampleOutput?.requestFrame(force: true) }
+        if enabled {
+            _ = mpv_set_property_string(handle, "vid", "auto")
+            sampleOutput?.requestFrame(force: true)
+        }
     }
-    func invalidateFrames(epoch: UUID) {
-        queue.async { self.frameState.update { $0.epoch = epoch; $0.metadataReady = false } }
-    }
-
     func setString(_ name: String, _ value: String) {
         queue.async {
             guard let handle = self.handle else { return }
@@ -268,9 +267,11 @@ final class MPVBackend: @unchecked Sendable {
         }
     }
 
-    func seek(to seconds: Double) {
+    func seek(to seconds: Double, epoch: UUID) {
         queue.async {
             guard let handle = self.handle else { return }
+            self.drainEvents()
+            self.frameState.update { $0.epoch = epoch; $0.metadataReady = false }
             let status = self.command(["seek", String(seconds), "absolute"], handle: handle)
             if status < 0 { self.deliver([.failed("跳转失败 (\(status))")]) }
         }
@@ -337,7 +338,7 @@ final class MPVBackend: @unchecked Sendable {
                 if activeEntry != nil {
                     frameState.update { $0.metadataReady = sampleRequested && sampleReady && $0.color.verdict == .sdr }
                     sampleOutput?.requestFrame(force: true)
-                    events.append(.ready)
+                    events.append(.ready(frameState.read().epoch))
                 }
             case MPV_EVENT_PROPERTY_CHANGE:
                 guard activeEntry != nil,
