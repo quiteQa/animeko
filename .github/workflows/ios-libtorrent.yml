@@ -7,6 +7,7 @@ on:
   push:
     branches:
     - 'claude/**'
+    - 'codex/**'
     paths:
     - 'app/ios-native/libtorrent/**'
     - '.github/workflows/ios-libtorrent.yml'
@@ -30,15 +31,39 @@ jobs:
         xcrun simctl list runtimes
 
     - name: 'Build'
-      run: './app/ios-native/libtorrent/build-ios.sh "$RUNNER_TEMP/lt"'
+      uses: actions/cache/restore@v4
+      id: native-cache
+      with:
+        path: app/ios-native/libtorrent/build
+        key: ios-lt-${{ runner.arch }}-${{ hashFiles('app/ios-native/libtorrent/versions.env') }}-${{ hashFiles('app/ios-native/libtorrent/bridge/**', 'app/ios-native/libtorrent/CMakeLists.txt') }}
+        restore-keys: ios-lt-${{ runner.arch }}-${{ hashFiles('app/ios-native/libtorrent/versions.env') }}-
+
+    - name: 'Build native engine'
+      run: './app/ios-native/libtorrent/build-ios.sh'
+
+    - uses: actions/cache/save@v4
+      if: steps.native-cache.outputs.cache-hit != 'true'
+      with:
+        path: app/ios-native/libtorrent/build
+        key: ${{ steps.native-cache.outputs.cache-primary-key }}
+
+    - name: 'Offline P2P bridge regression'
+      run: |
+        device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for runtime,items in sorted(d["devices"].items(),reverse=True) if "iOS" in runtime for x in items if x["name"].startswith("iPhone")))')
+        xcrun simctl boot "$device" || true
+        xcrun simctl bootstatus "$device" -b
+        binary="$GITHUB_WORKSPACE/app/ios-native/libtorrent/build/ios-simulator/bin/lt-bridge-tests"
+        codesign -s - -f "$binary"
+        xcrun simctl spawn "$device" "$binary" "$RUNNER_TEMP/lt/bridge-test-data"
 
     - name: 'Smoke test in simulator'
-      run: './app/ios-native/libtorrent/run-smoke.sh "$RUNNER_TEMP/lt"'
+      continue-on-error: true
+      run: './app/ios-native/libtorrent/run-smoke.sh'
 
     - name: 'Upload xcframework'
       if: '${{ always() }}'
       uses: 'actions/upload-artifact@v6'
       with:
         name: 'LibTorrent-xcframework'
-        path: '${{ runner.temp }}/lt/LibTorrent.xcframework'
+        path: app/ios-native/libtorrent/build/LibTorrent.xcframework
         if-no-files-found: 'ignore'

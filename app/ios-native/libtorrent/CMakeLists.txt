@@ -38,7 +38,18 @@ add_library(anitorrent-core STATIC
 target_include_directories(anitorrent-core PUBLIC ${anitorrent_cpp}/include)
 target_link_libraries(anitorrent-core PUBLIC torrent-rasterbar)
 
-install(TARGETS anitorrent-core torrent-rasterbar ARCHIVE DESTINATION lib)
+add_library(ani-torrent-bridge STATIC bridge/AniTorrentBridge.cpp)
+target_include_directories(ani-torrent-bridge PUBLIC bridge)
+target_link_libraries(ani-torrent-bridge PUBLIC torrent-rasterbar)
+
+install(TARGETS anitorrent-core ani-torrent-bridge torrent-rasterbar ARCHIVE DESTINATION lib)
+install(FILES bridge/AniTorrentBridge.h DESTINATION include)
+
+add_executable(lt-bridge-tests bridge/BridgeTests.cpp)
+target_link_libraries(lt-bridge-tests PRIVATE ani-torrent-bridge)
+target_compile_options(lt-bridge-tests PRIVATE -UNDEBUG)
+set_target_properties(lt-bridge-tests PROPERTIES MACOSX_BUNDLE OFF)
+install(TARGETS lt-bridge-tests RUNTIME DESTINATION bin)
 install(DIRECTORY ${LIBTORRENT_SOURCE_DIR}/include/libtorrent DESTINATION include)
 install(DIRECTORY ${anitorrent_cpp}/include/ DESTINATION include/anitorrent)
 

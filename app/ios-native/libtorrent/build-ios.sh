@@ -80,8 +80,7 @@ for entry in "${platforms[@]}"; do
 
   # 合并为一个静态库, 便于 xcframework 与 cinterop 使用
   libtool -static -o "$prefix/libtorrent-ios.a" \
-    "$prefix/lib/libanitorrent-core.a" "$prefix/lib/libtorrent-rasterbar.a" \
-    "$prefix/lib/libssl.a" "$prefix/lib/libcrypto.a"
+    "$prefix/lib/libani-torrent-bridge.a" "$prefix/lib/libanitorrent-core.a" "$prefix/lib/libtorrent-rasterbar.a"
 done
 
 # ---------- xcframework ----------

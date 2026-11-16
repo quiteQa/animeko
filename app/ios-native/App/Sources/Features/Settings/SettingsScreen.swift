@@ -154,29 +154,36 @@ struct SettingsScreen: View {
     }
 }
 
-/// 数据源列表: 启用或停用. 数据源由订阅自动维护, 这里不增删.
+/// 数据源开关与本地 Jellyfin 实例管理; 订阅数据源由上游订阅更新器维护.
 struct MediaSourcesScreen: View {
     @Environment(AppServices.self) private var services
     @State private var sources: [AniMediaSourceItem] = []
 
-    /// iOS 上的查询会话不包含 BT 数据源 (上游 `MediaSourceManager` 在 iOS 上关闭了 BT 查询), 不列出它们.
-    private var visibleSources: [AniMediaSourceItem] {
-        sources.filter { $0.kind != "BitTorrent" }
-    }
+    private var visibleSources: [AniMediaSourceItem] { sources }
 
     var body: some View {
-        List(visibleSources, id: \.instanceId) { source in
-            Toggle(isOn: Binding(
-                get: { source.enabled },
-                set: { enabled in
-                    Task { try? await services.core.settings.setMediaSourceEnabled(instanceId: source.instanceId, enabled: enabled) }
-                },
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(source.displayName)
-                    Text(source.kind == "WEB" ? "在线" : source.kind)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        List {
+            NavigationLink("添加 Jellyfin 媒体库") { AddJellyfinScreen() }
+            ForEach(visibleSources, id: \.instanceId) { source in
+                Toggle(isOn: Binding(
+                    get: { source.enabled },
+                    set: { enabled in
+                        Task { try? await services.core.settings.setMediaSourceEnabled(instanceId: source.instanceId, enabled: enabled) }
+                    },
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(source.displayName)
+                        Text(source.kind == "WEB" ? "在线" : source.kind)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .swipeActions {
+                    if source.mediaSourceId == "jellyfin" {
+                        Button("删除", role: .destructive) {
+                            Task { try? await services.core.settings.removeMediaSource(instanceId: source.instanceId) }
+                        }
+                    }
                 }
             }
         }

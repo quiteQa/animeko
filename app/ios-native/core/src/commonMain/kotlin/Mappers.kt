@@ -25,6 +25,7 @@ import me.him188.ani.datasources.api.EpisodeType
 import me.him188.ani.datasources.api.Media
 import me.him188.ani.datasources.api.PackedDate
 import me.him188.ani.datasources.api.topic.UnifiedCollectionType
+import me.him188.ani.datasources.api.topic.ResourceLocation
 import org.openani.mediamp.source.UriMediaData
 
 // app-data 类型到 facade 值类型的映射. 上游改动数据模型时, 只需要改这个文件.
@@ -63,7 +64,7 @@ internal fun Media.toAniMediaCandidate(playable: Boolean): AniMediaCandidate = A
     alliance = properties.alliance,
     subtitleLanguages = properties.subtitleLanguageIds,
     kind = kind.name,
-    playable = playable,
+    playable = playable || download is ResourceLocation.MagnetLink || download is ResourceLocation.HttpTorrentFile,
     originalUrl = originalUrl,
 )
 

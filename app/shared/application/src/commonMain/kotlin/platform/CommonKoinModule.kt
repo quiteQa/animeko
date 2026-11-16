@@ -9,6 +9,8 @@
 
 package me.him188.ani.app.platform
 
+import me.him188.ani.utils.platform.Platform
+import me.him188.ani.utils.platform.currentPlatform
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -159,16 +161,18 @@ fun KoinApplication.getCommonKoinModule(
     getContext: () -> Context,
     coroutineScope: CoroutineScope,
     enableMediaCache: Boolean = true,
+    enableNativeTorrentSources: Boolean = false,
 ) = listOf(
     useCaseModules(),
     repositoryModules(getContext, coroutineScope),
-    otherModules(getContext, coroutineScope, enableMediaCache),
+    otherModules(getContext, coroutineScope, enableMediaCache, enableNativeTorrentSources),
 )
 
 private fun KoinApplication.otherModules(
     getContext: () -> Context,
     coroutineScope: CoroutineScope,
     enableMediaCache: Boolean,
+    enableNativeTorrentSources: Boolean,
 ) = module {
     // Application services
     single<ProxyProvider> { SettingsBasedProxyProvider(get(), coroutineScope) }
@@ -512,6 +516,7 @@ private fun KoinApplication.otherModules(
     }
     single<MediaSourceManager> {
         MediaSourceManagerImpl(
+            includeTorrentSources = enableNativeTorrentSources || currentPlatform() != Platform.Ios,
             additionalSources = {
                 get<MediaDownloadManager>().storages.map { it.cacheMediaSource }
             },

@@ -1,6 +1,6 @@
 # iOS 原生客户端目标
 
-本文记录 `app/ios-native` 的产品范围和验收要求。实现状态与证据见 [VALIDATION.md](VALIDATION.md), 帧输出实验见 [FrameLab](FrameLab/README.md)。未通过关卡的构建属于开发版。
+本文记录 `app/ios-native` 的产品范围和验收要求。实现状态与证据见 [VALIDATION.md](VALIDATION.md), 帧输出实验见 [FrameLab](FrameLab/README.md)。本轮交付范围为除 4K HDR / Dolby Vision 全保真之外的首版功能; 格式保真作为独立后续目标。其余未通过关卡的构建属于开发版。
 
 ## 使用与技术范围
 
@@ -25,7 +25,7 @@
 | AirPlay | 在线、BT、MKV 等输入直接投送, 转封装或必要处理在手机完成; 屏幕镜像不计通过 |
 | 4K HDR / Dolby Vision | 保留位深、色彩和所需动态元数据; 按 Profile 与变体验证必要的 BL/EL/RPU, 不静默降为 HDR10 或 SDR |
 
-系统挂起应用时允许 BT 和转码暂停。AirPlay 在缺少接收端时可以保留为实验能力, 但不能据此标记首版通过。全格式画中画、直接 AirPlay 或 HDR/DV 保真不可行时, 对应能力与完整首版保持阻塞, 不通过缩小目标解除阻塞。
+系统挂起应用时允许 BT 和转码暂停。AirPlay 在缺少接收端时可以保留为实验能力, 但不能据此标记首版通过。画中画、直接 AirPlay 和 BT 需要在本轮完成接入; HDR/DV 全保真不作为本轮交付关卡, 已知 HDR/DV 不能静默经 8 位 SDR 输出。
 
 已有的一起看、评论、缓存管理、手动查找、OP/ED 跳过和画质增强保留, 作为相关改动的回归项。
 

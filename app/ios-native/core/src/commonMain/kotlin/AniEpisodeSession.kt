@@ -55,6 +55,8 @@ import me.him188.ani.app.domain.media.hls.HlsPlaybackPreparer
 import me.him188.ani.app.domain.media.hls.HlsPlaybackProxySession
 import me.him188.ani.app.domain.media.resolver.MediaResolutionException
 import me.him188.ani.app.domain.media.resolver.MediaResolver
+import me.him188.ani.app.domain.media.resolver.TorrentMediaResolver
+import me.him188.ani.datasources.api.topic.ResourceLocation
 import me.him188.ani.app.domain.media.resolver.MediaSourceOpenException
 import me.him188.ani.app.domain.media.resolver.UnsupportedMediaException
 import me.him188.ani.app.domain.media.resolver.toEpisodeMetadata
@@ -512,6 +514,14 @@ class AniEpisodeSession internal constructor(
         val episode = infoBundle.first().episodeCollectionInfo.episodeInfo
 
         releaseResolved()
+        val torrentUri = when (val location = media.download) {
+            is ResourceLocation.MagnetLink -> location.uri
+            is ResourceLocation.HttpTorrentFile -> location.uri
+            else -> null
+        }
+        if (torrentUri != null) {
+            return AniPlayable(torrentUri, emptyMap(), emptyList(), media.originalTitle, torrentUri, torrent = true)
+        }
         val job = Job(scope.coroutineContext[Job])
         resolveJob = job
         val resolveScope = CoroutineScope(scope.coroutineContext + job)
@@ -565,6 +575,20 @@ class AniEpisodeSession internal constructor(
         resolveJob = null
         hlsProxySession?.close()
         hlsProxySession = null
+    }
+
+    /** 种子文件选集沿用上游的标题、系列集数与季度集数匹配规则. */
+    @Throws(Exception::class)
+    suspend fun selectTorrentFile(paths: List<String>): Int {
+        val episode = infoBundle.first().episodeCollectionInfo.episodeInfo.toEpisodeMetadata()
+        val selected = TorrentMediaResolver.selectVideoFileEntry(
+            entries = paths,
+            getPath = { this },
+            episodeTitles = listOf(episode.title).filter { it.isNotBlank() },
+            episodeSort = episode.sort,
+            episodeEp = episode.ep,
+        ) ?: return -1
+        return paths.indexOf(selected)
     }
 
     /**

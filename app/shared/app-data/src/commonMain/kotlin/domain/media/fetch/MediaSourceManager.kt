@@ -229,6 +229,7 @@ class MediaSourceManagerImpl(
      */
     additionalSources: () -> List<MediaSource>, // local sources, calculated only once
     private val flowCoroutineContext: CoroutineContext = Dispatchers.Default,
+    private val includeTorrentSources: Boolean = currentPlatform() != Platform.Ios,
 ) : MediaSourceManager, KoinComponent {
     private val proxyProvider: ProxyProvider by inject()
     private val mikanIndexCacheRepository: MikanIndexCacheRepository by inject()
@@ -312,7 +313,7 @@ class MediaSourceManagerImpl(
 
     override val mediaFetcher: Flow<MediaFetcher> = allInstances.map { instances ->
         MediaSourceMediaFetcher(
-            configProvider = { MediaFetcherConfig(currentPlatform() != Platform.Ios) },
+            configProvider = { MediaFetcherConfig(includeTorrentSources) },
             mediaSources = instances,
         )
     }

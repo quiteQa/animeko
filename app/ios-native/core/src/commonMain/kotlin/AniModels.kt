@@ -194,6 +194,8 @@ data class AniPlayable(
     val title: String,
     /** 解析得到的原始播放地址. HLS 去广告时 [url] 指向本地处理后的播放列表, 外部链接使用本地址. */
     val sourceUrl: String,
+    /** 磁力或种子由 Swift 本地 BT 引擎打开, 再以支持 Range 的本机 URL 提供给 mpv. */
+    val torrent: Boolean = false,
 )
 
 enum class AniDanmakuLocation {
