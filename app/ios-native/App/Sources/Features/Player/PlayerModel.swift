@@ -96,6 +96,7 @@ final class PlayerModel {
     var pageVisible = false
     var canStartPictureInPicture: Bool { phase == .playing && player.canStartPictureInPicture && !airPlay.isConnected }
     private(set) var pictureInPictureActive = false
+    @ObservationIgnored private var resumePiPAfterLoad = false
     let airPlay = AirPlaySession()
     @ObservationIgnored private let performance = PlaybackPerformanceReport()
     var audioTracks: [MPVPlayer.Track] = []
@@ -130,7 +131,7 @@ final class PlayerModel {
             guard let self else { return }
             pictureInPictureActive = active
             if active { self.services?.backgroundPlayback = self }
-            else if !airPlay.isConnected {
+            else if !airPlay.isConnected && !resumePiPAfterLoad {
                 self.services?.backgroundPlayback = nil
                 if !pageVisible { stop() }
             }
@@ -406,6 +407,7 @@ final class PlayerModel {
     /// 在当前播放页内切换到 `episode`: 保存旧剧集的进度并关闭其会话, 再为新剧集查询资源.
     func play(episode: AniEpisode) {
         guard !isStopped, episode.id != target.episode.id, !isSwitchingEpisode else { return }
+        resumePiPAfterLoad = player.retainsPlayback
         isSwitchingEpisode = true
         transitionTask = Task { [weak self] in
             guard let self else { return }
@@ -420,6 +422,7 @@ final class PlayerModel {
 
     func stop() {
         guard !isStopped else { return }
+        resumePiPAfterLoad = false
         isStopped = true
         airPlay.stop()
         if services?.backgroundPlayback === self { services?.backgroundPlayback = nil }
@@ -688,7 +691,7 @@ final class PlayerModel {
             center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.reportProgress(force: true)
-                    if self?.player.retainsPlayback != true { self?.player.setVideoEnabled(false) }
+                    if self?.player.pictureInPicture.active != true { self?.player.setVideoEnabled(false) }
                 }
             },
             center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
@@ -733,6 +736,15 @@ final class PlayerModel {
 
     private func onPlayerChanged() {
         guard !airPlay.isConnected else { return }
+        if resumePiPAfterLoad, phase == .playing, player.inspectionComplete {
+            resumePiPAfterLoad = false
+            if player.canStartPictureInPicture { player.startPictureInPicture() }
+            else {
+                toastMessage = "下一集不支持当前画中画输出，请返回播放页"
+                services?.backgroundPlayback = nil
+                if !pageVisible { stop(); return }
+            }
+        }
         let playing = player.hasMedia && !player.isPaused
         if playing != isPlaying { onPlayingChanged(playing) }
         guard phase == .playing, player.hasMedia else { return }

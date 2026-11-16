@@ -20,12 +20,12 @@ concurrency:
 jobs:
   build-ipa:
     name: 'Build unsigned IPA'
-    runs-on: 'macos-26'
+    runs-on: 'macos-15-intel'
     timeout-minutes: 150
     permissions:
       contents: 'read'
     env:
-      JBR_FILE: 'jbrsdk_jcef-21.0.11-osx-aarch64-b1163.125.tar.gz'
+      JBR_FILE: jbrsdk_jcef-21.0.11-osx-${{ runner.arch == 'ARM64' && 'aarch64' || 'x64' }}-b1163.125.tar.gz
     steps:
     - uses: 'actions/checkout@v6'
       with:
@@ -56,11 +56,11 @@ jobs:
       run: |
         mkdir -p "$RUNNER_TEMP/jbr"
         tar -xzf "$RUNNER_TEMP/$JBR_FILE" -C "$RUNNER_TEMP/jbr"
-        home=$(dirname "$(find "$RUNNER_TEMP/jbr" -path '*/Contents/Home/bin/java' -type f | head -1)")
-        home=$(dirname "$home")
-        test -x "$home/bin/java"
-        echo "JAVA_HOME=$home" >> "$GITHUB_ENV"
-        echo "$home/bin" >> "$GITHUB_PATH"
+        jbrHome=$(dirname "$(find "$RUNNER_TEMP/jbr" -path '*/Contents/Home/bin/java' -type f | head -1)")
+        jbrHome=$(dirname "$jbrHome")
+        test -x "$jbrHome/bin/java"
+        echo "JAVA_HOME=$jbrHome" >> "$GITHUB_ENV"
+        echo "$jbrHome/bin" >> "$GITHUB_PATH"
 
     - name: 'Show toolchain'
       run: |

@@ -19,6 +19,7 @@ final class MPVPlayer {
 
     let pictureInPicture = MPVPictureInPicture()
     private(set) var inspection: MediaInspection?
+    private(set) var inspectionComplete = false
     private var inspectionTask: Task<Void, Never>?
     private var pipTimeout: Task<Void, Never>?
     private var frameEpoch = UUID()
@@ -56,12 +57,12 @@ final class MPVPlayer {
         stopPictureInPicture()
         inspectionTask?.cancel(); finishSeeks()
         generation = UUID()
-        inspection = nil
+        inspection = nil; inspectionComplete = false
         let expected = generation
         inspectionTask = Task { [weak self] in
             let info = try? await MediaInspection.inspect(url: url, headers: headers)
             guard let self, !Task.isCancelled, generation == expected else { return }
-            inspection = info; onChange?()
+            inspection = info; inspectionComplete = true; onChange?()
         }
         measurements.beginLoad(at: ProcessInfo.processInfo.systemUptime)
         position = start.isFinite ? max(0, start) : 0
@@ -148,8 +149,11 @@ final class MPVPlayer {
     }
     func stopPictureInPicture() {
         pipTimeout?.cancel(); pipTimeout = nil
+        let wasRetained = retainsPlayback
         pictureInPicture.reset(); pictureInPicture.view.isHidden = true
+        if UIApplication.shared.applicationState == .background { backend.setString("vid", "no") }
         backend.setSampleOutput(false, info: nil, epoch: UUID())
+        if wasRetained { onPictureInPictureChanged?(false) }
     }
     func addSubtitle(url: String, title: String) { backend.addSubtitle(url: url, title: title) }
 

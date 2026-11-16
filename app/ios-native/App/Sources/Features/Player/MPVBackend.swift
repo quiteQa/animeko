@@ -329,6 +329,8 @@ final class MPVBackend: @unchecked Sendable {
                     events.append(.failed("视频加载失败 (\(end.error))"))
                 }
                 activeEntry = nil
+            case MPV_EVENT_VIDEO_RECONFIG:
+                if activeEntry != nil && sampleRequested { validateSampleColor(handle) }
             case MPV_EVENT_PLAYBACK_RESTART:
                 if activeEntry != nil {
                     frameState.update { $0.metadataReady = sampleRequested && sampleReady && $0.color.verdict == .sdr }
@@ -357,6 +359,27 @@ final class MPVBackend: @unchecked Sendable {
             }
         }
         if !events.isEmpty { deliver(events) }
+    }
+
+    private func validateSampleColor(_ handle: OpaquePointer) {
+        func text(_ name: String) -> String? {
+            guard let pointer = mpv_get_property_string(handle, name) else { return nil }
+            defer { mpv_free(pointer) }; return String(cString: pointer)
+        }
+        let transfer = text("video-params/gamma")?.lowercased()
+        let primaries = text("video-params/primaries")?.lowercased()
+        var dolby = false
+        var count: Int64 = 0
+        if mpv_get_property(handle, "track-list/count", MPV_FORMAT_INT64, &count) >= 0, count > 0 && count < 200 {
+            for index in 0..<count where text("track-list/\(index)/type") == "video" && text("track-list/\(index)/selected") == "yes" {
+                dolby = (Int(text("track-list/\(index)/dolby-vision-profile") ?? "0") ?? 0) > 0
+            }
+        }
+        if dolby || ["pq", "smpte2084", "hlg", "arib-std-b67"].contains(transfer ?? "") || primaries == "bt.2020" {
+            frameState.update { $0.metadataReady = false; $0.epoch = UUID() }
+            sampleRequested = false; applySampleOutput(handle)
+            deliver([.sampleFailure("当前视频轨道包含 HDR / Dolby Vision，已停止 SDR 画中画输出")])
+        }
     }
 
     private func deliver(_ events: [Event]) {

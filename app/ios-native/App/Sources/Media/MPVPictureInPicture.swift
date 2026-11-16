@@ -94,7 +94,7 @@ final class MPVPictureInPicture: NSObject {
         view.displayLayer.flushAndRemoveImage(); format = nil; hasFrame = false
     }
     func reset() {
-        startRequested = false; starting = false
+        startRequested = false; starting = false; active = false
         controller?.stopPictureInPicture()
         flush(generation: UUID(), epoch: UUID())
     }
