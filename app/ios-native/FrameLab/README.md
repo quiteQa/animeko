@@ -1,0 +1,86 @@
+# mpv 帧输出实验
+
+独立的 iOS 验证 App, 使用与主客户端相同的 MPVKit `1.1.0-n9.0.2`。不依赖 AniCore / Compose, 不修改主客户端播放器。
+
+## 验证内容
+
+```
+mpv 解码与时钟
+    ↓ OpenGL render API (独立渲染队列)
+IOSurface-backed BGRA CVPixelBuffer (池上限 3)
+    ↓ CMSampleBuffer, host-clock 显示时间戳
+AVSampleBufferDisplayLayer
+    ↓
+AVPictureInPictureController
+```
+
+- client API 与 render API 在独立队列执行, 渲染队列仅调用 libmpv 明确标注线程安全的 `mpv_get_time_us` 时钟查询, 不调用其他 client API, 不建立跨队列同步等待。
+- 通过公开的 `EAGLContext.texImageIOSurface` 映射缓冲区的 IOSurface 作为渲染目标。GPU 绘制完成后才交出像素缓冲区; 没有逐帧截图、CPU 像素回读或 AVPlayer 解码。测试会读缓冲区检查上下方向。
+- 输入只接受本地文件。BT、网络供流与 VOD 媒体时间轴映射不在此实验内。
+- 先读取编码层色彩与 DV 配置, 再核对 mpv 解码参数; 不把 mpv 推断的默认色彩当作源文件声明。明确的 SDR 白名单; HDR10、HLG、Dolby Vision 和未知色彩信息不进入 BGRA8 输出。主客户端的高位深/DV 要求保持阻塞。
+- 当前 MPVKit 在 iOS 上禁用 VideoToolbox/OpenGL 互操作, 因此实验使用 `videotoolbox-copy`。它不能作为零复制、4K HDR 或低功耗达标的证据。
+- iOS 模拟器 SDK 不声明 `EAGLContext.texImageIOSurface`, 因此模拟器明确报告该输出不受支持。像素方向、时间戳和三缓冲区背压测试仅在真机执行, 模拟器会记录跳过原因, 不能作为渲染证据。
+- 画中画由系统 sample-buffer 接口承接; 需要真机验证启动、暂停、后台、返回界面及音画同步。模拟器帧测试不等于画中画测试通过。
+
+## 构建与测试
+
+需要 macOS、Xcode 26 和 XcodeGen:
+
+```sh
+cd app/ios-native/FrameLab
+xcodegen generate
+xcodebuild test -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO
+```
+
+`.github/workflows/ios-frame-lab.yml` 在 PR 和手动运行时先检查真机/模拟器 SDK 的编译兼容性, 再验证模拟器上的 HDR 拦截、未知元数据和明确的平台能力错误。像素方向、时间戳与背压两个测试在模拟器上跳过, 需要连接真机执行。原生编译通过后归档未签名 FrameLab IPA, 供个人设备侧载验证; 运行测试失败仍会使 workflow 失败, 归档产物不代表能力验证通过。
+
+在 iPhone 上启动 App, 点击“内置 SDR 样本”: 60 秒闪烁测试图带低音量提示音, 用于检查接收帧数、画面运动、暂停和画中画。点击“验证 HDR 拦截”必须显示原因, 本次会话不输出视频帧。也可以导入自己的本地样本。
+
+记录机型、iOS 版本、提交和首帧数, 检查画中画启动、切到后台 10 秒、返回界面、暂停/恢复、关闭和重复切样本。内置样本用于功能检查, 不证明音画同步精度、4K 性能或色彩保真。
+
+连接到 Mac 的真机可以执行缓冲区测试:
+
+```sh
+xcodebuild test -project NativeFrameLab.xcodeproj -scheme NativeFrameLab \
+  -destination 'platform=iOS,id=YOUR_DEVICE_UDID' DEVELOPMENT_TEAM=YOUR_TEAM_ID \
+  -allowProvisioningUpdates
+```
+
+未签名 IPA 需要用自己的 Apple ID 重签后安装; 模拟器构建不能安装到 iPhone。
+
+## 测试资源
+
+`Tests/Fixtures` 是 FFmpeg 生成的纯色测试视频, 不含第三方媒体内容。它们是自动测试资源, 不是验证截图或录屏。
+
+- `sdr-pattern.mp4`: H.264 / BT.709, 上红下蓝, 160×90, 24fps, 3 秒。
+- `unknown-color.mp4`: H.264, 未声明原色与传递函数, 用于验证未知输入不会被 mpv 默认值放行。
+- `hdr10-pattern.mp4`: HEVC Main 10 / BT.2020 / SMPTE ST 2084, 160×90, 24fps, 1 秒; 用于测试拦截, 不能验证 HDR 保真。
+
+生成方式:
+
+```sh
+ffmpeg -f lavfi -i 'color=c=red:s=160x90:r=24:d=3,drawbox=x=0:y=45:w=160:h=45:color=blue:t=fill' \
+  -c:v libx264 -threads 1 -crf 18 -x264-params 'colorprim=bt709:transfer=bt709:colormatrix=bt709' \
+  -pix_fmt yuv420p -color_primaries 1 -color_trc 1 -colorspace 1 -movflags +faststart sdr-pattern.mp4
+ffmpeg -f lavfi -i 'color=c=white:s=160x90:r=24:d=1' -c:v libx265 -threads 1 \
+  -x265-params 'pools=1:frame-threads=1:log-level=error:colorprim=9:transfer=16:colormatrix=9:hdr10=1:repeat-headers=1' \
+  -pix_fmt yuv420p10le -color_primaries 9 -color_trc 16 -colorspace 9 -tag:v hvc1 -movflags +faststart hdr10-pattern.mp4
+ffmpeg -f lavfi -i 'color=c=gray:s=160x90:r=24:d=1' -c:v libx264 -threads 1 \
+  -pix_fmt yuv420p -movflags +faststart unknown-color.mp4
+```
+
+`Samples/pip-sdr.mp4` 是 App 内置的闪烁 SDR 样本, 由以下命令生成, 不含第三方媒体。`Samples/test-hdr10.mp4` 与自动测试的 HDR 拦截资源相同。
+
+```sh
+ffmpeg -f lavfi -i "color=c=0x203060:s=320x180:r=24:d=60,drawbox=x=100:y=30:w=120:h=120:color=white:t=fill:enable='lt(mod(t,2),1)'" \
+  -f lavfi -i 'sine=frequency=440:sample_rate=16000:duration=60' -af volume=0.01 \
+  -c:v libx264 -threads 1 -preset veryfast -crf 30 \
+  -x264-params 'colorprim=bt709:transfer=bt709:colormatrix=bt709' -pix_fmt yuv420p \
+  -color_primaries 1 -color_trc 1 -colorspace 1 -c:a aac -b:a 16k \
+  -movflags +faststart -shortest pip-sdr.mp4
+```
+
+## 后续关卡
+
+本实验验证 SDR 的系统输出链路。首版仍需要原生高位深帧输出补丁、准确的媒体时间轴映射、字幕验证、HDR/DV 元数据与增强层核对, 以及真机/接收端实测。实验成功不自动解除这些阻塞。
