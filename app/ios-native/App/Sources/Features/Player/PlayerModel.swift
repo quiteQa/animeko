@@ -160,7 +160,8 @@ final class PlayerModel {
                 player.stopPictureInPicture(); self.services?.backgroundPlayback = self
                 player.pause(); player.setVideoEnabled(false)
             } else {
-                player.setVideoEnabled(true); player.seek(to: position)
+                if pageVisible && UIApplication.shared.applicationState != .background { player.setVideoEnabled(true) }
+                player.seek(to: position)
                 if pageVisible && airPlayResumePlaying { player.play() }
                 self.services?.backgroundPlayback = nil
                 if !pageVisible { stop() }
@@ -724,7 +725,7 @@ final class PlayerModel {
                           let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                           reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
                     self.interruptionToken = nil
-                    self.player.pause()
+                    if self.airPlay.isConnected { self.airPlay.setPlaying(false) } else { self.player.pause() }
                 }
             },
         ]
