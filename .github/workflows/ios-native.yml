@@ -118,6 +118,9 @@ jobs:
         echo "All Gradle distribution sources failed" >&2
         exit 1
 
+    - name: 'Run Kotlin facade regression tests'
+      run: ./gradlew :app:ios-native:core:desktopTest "-Dorg.gradle.jvmargs=-Xmx5g" "-Dkotlin.daemon.jvm.options=-Xmx5g"
+
     # pod install 要求 AniCore.framework 已存在, 先生成占位 framework; 真正的 framework 在 xcodebuild 时编译
     - uses: actions/cache/restore@v4
       id: native-cache
@@ -134,9 +137,6 @@ jobs:
       with:
         path: app/ios-native/libtorrent/build
         key: ${{ steps.native-cache.outputs.cache-primary-key }}
-
-    - name: 'Run Kotlin facade regression tests'
-      run: ./gradlew :app:ios-native:core:desktopTest "-Dorg.gradle.jvmargs=-Xmx5g" "-Dkotlin.daemon.jvm.options=-Xmx5g"
 
     - name: 'Prepare FFmpeg runtime and AniCore podspec'
       run: >-
