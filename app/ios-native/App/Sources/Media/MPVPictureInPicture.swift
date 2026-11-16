@@ -57,6 +57,7 @@ final class MPVPictureInPicture: NSObject {
     }
 
     func update(position: Double, duration: Double, speed: Double, paused: Bool) {
+        let duration = duration > 0 ? duration : active ? lastDuration : 0
         let host = CMClockGetTime(CMClockGetHostTimeClock())
         let changed = timeline.update(position: position, duration: duration, speed: speed, paused: paused, hostTime: host.seconds)
         if changed, let timebase = view.displayLayer.controlTimebase {

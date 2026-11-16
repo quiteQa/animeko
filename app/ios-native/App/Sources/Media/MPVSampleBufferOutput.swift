@@ -54,6 +54,7 @@ final class MPVSampleBufferOutput: @unchecked Sendable {
     private var closed = false
     private var callback: Unmanaged<Callback>?
     private var reportedFailure = false
+    private var lastRenderedGeneration: UUID?
 
     private final class Callback {
         weak var output: MPVSampleBufferOutput?
@@ -101,6 +102,12 @@ final class MPVSampleBufferOutput: @unchecked Sendable {
         guard force || updates & UInt64(MPV_RENDER_UPDATE_FRAME.rawValue) != 0 else { return }
         let snapshot = state.read()
         guard snapshot.metadataReady, snapshot.color.verdict == .sdr else { skip(renderer); return }
+        var frameInfo = mpv_render_frame_info()
+        let infoStatus = withUnsafeMutablePointer(to: &frameInfo) {
+            mpv_render_context_get_info(renderer, mpv_render_param(type: MPV_RENDER_PARAM_NEXT_FRAME_INFO, data: $0))
+        }
+        if infoStatus >= 0, frameInfo.flags & UInt64(MPV_RENDER_FRAME_INFO_PRESENT.rawValue) == 0,
+           !force || lastRenderedGeneration != snapshot.generation { skip(renderer); return }
         let width = snapshot.width, height = snapshot.height
         guard width > 0, height > 0, width <= 4096, height <= 4096 else { skip(renderer); return }
         if dimensions.width != width || dimensions.height != height || pool == nil {
@@ -122,10 +129,6 @@ final class MPVSampleBufferOutput: @unchecked Sendable {
         guard allocation == kCVReturnSuccess, let buffer else { state.update { $0.poolDrops += 1 }; skip(renderer); return }
         let lock = CVPixelBufferLockBaseAddress(buffer, [])
         guard lock == kCVReturnSuccess else { fail("视频缓冲区写入失败"); skip(renderer); return }
-        var frameInfo = mpv_render_frame_info()
-        withUnsafeMutablePointer(to: &frameInfo) {
-            _ = mpv_render_context_get_info(renderer, mpv_render_param(type: MPV_RENDER_PARAM_NEXT_FRAME_INFO, data: $0))
-        }
         let result: Int32
         if let base = CVPixelBufferGetBaseAddress(buffer) {
             var size = [Int32(width), Int32(height)]
@@ -147,6 +150,7 @@ final class MPVSampleBufferOutput: @unchecked Sendable {
         } else { result = -1 }
         CVPixelBufferUnlockBaseAddress(buffer, [])
         guard result >= 0 else { fail("mpv 视频帧输出失败 (\(result))"); return }
+        lastRenderedGeneration = snapshot.generation
         let current = state.read()
         guard current.epoch == snapshot.epoch, current.metadataReady, current.color.verdict == .sdr else { return }
         CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)

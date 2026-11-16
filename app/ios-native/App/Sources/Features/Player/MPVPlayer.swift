@@ -23,6 +23,7 @@ final class MPVPlayer {
     private var inspectionTask: Task<Void, Never>?
     private var pipTimeout: Task<Void, Never>?
     private var frameEpoch = UUID()
+    private var awaitingPiPInspection = false
     private var seekWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private(set) var measurements = PlaybackMeasurements()
     var onPictureInPictureChanged: ((Bool) -> Void)?
@@ -55,6 +56,7 @@ final class MPVPlayer {
     func load(url: String, headers: [String: String], start: Double, autoplay: Bool) {
         guard !isDestroyed else { return }
         let preservingPiP = pictureInPicture.active
+        awaitingPiPInspection = preservingPiP
         if !preservingPiP { stopPictureInPicture() }
         inspectionTask?.cancel(); finishSeeks()
         generation = UUID(); frameEpoch = UUID()
@@ -65,7 +67,8 @@ final class MPVPlayer {
             let info = try? await MediaInspection.inspect(url: url, headers: headers)
             guard let self, !Task.isCancelled, generation == expected else { return }
             inspection = info; inspectionComplete = true
-            if preservingPiP {
+            if preservingPiP && hasMedia {
+                awaitingPiPInspection = false
                 if canStartPictureInPicture { backend.setSampleOutput(true, info: info, epoch: frameEpoch) }
                 else if hasMedia { stopPictureInPicture(); onPictureInPictureFailure?("当前媒体不支持 SDR 画中画输出") }
             }
@@ -85,6 +88,7 @@ final class MPVPlayer {
     func stop(preservePictureInPicture: Bool = false) {
         guard !isDestroyed else { return }
         if !preservePictureInPicture || !pictureInPicture.active { stopPictureInPicture() }
+        else { pictureInPicture.update(position: position, duration: duration, speed: speed, paused: true) }
         inspectionTask?.cancel(); finishSeeks()
         generation = UUID()
         measurements.stop()
@@ -223,7 +227,8 @@ final class MPVPlayer {
                 if readyEpoch == frameEpoch { measurements.ready(at: ProcessInfo.processInfo.systemUptime); finishSeeks() }
                 hasMedia = true
                 isBuffering = false
-                if pictureInPicture.active && inspectionComplete {
+                if awaitingPiPInspection && inspectionComplete {
+                    awaitingPiPInspection = false
                     if canStartPictureInPicture { backend.setSampleOutput(true, info: inspection, epoch: frameEpoch) }
                     else { stopPictureInPicture(); onPictureInPictureFailure?("当前媒体不支持 SDR 画中画输出") }
                 }
