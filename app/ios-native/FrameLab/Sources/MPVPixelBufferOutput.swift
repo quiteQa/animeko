@@ -56,6 +56,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
     private var closed = false
     static let width = 640
     static let height = 360
+    static var supportsSurfaceInterop: Bool { ProbeSurfaceTextureIsSupported() }
 
     init(state: ProbeState, receive: @escaping @MainActor (ProbeFrame) -> Void, failure: @escaping (String) -> Void) {
         self.state = state

@@ -25,7 +25,6 @@ jobs:
             target=arm64-apple-ios26.0
             if [ "$sdk" = iphonesimulator ]; then target="$target-simulator"; fi
             echo "Checking $sdk at $sdk_path"
-            sed -n '1,65p' "$sdk_path/System/Library/Frameworks/OpenGLES.framework/Headers/EAGLIOSurface.h"
             if ! xcrun --sdk "$sdk" clang -target "$target" -isysroot "$sdk_path" \
               -fobjc-arc -fmodules -fsyntax-only -Werror=objc-method-access \
               app/ios-native/FrameLab/Sources/ProbeSurfaceTexture.m; then
@@ -62,7 +61,7 @@ jobs:
         run: |
           xcrun simctl boot "$PROBE_SIMULATOR" || true
           xcrun simctl bootstatus "$PROBE_SIMULATOR" -b
-      - name: Test real mpv to CVPixelBuffer output
+      - name: Test input guards and frame bridge availability
         working-directory: app/ios-native/FrameLab
         timeout-minutes: 8
         run: |

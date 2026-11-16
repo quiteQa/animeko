@@ -10,6 +10,7 @@ final class PixelBufferBridgeTests: XCTestCase {
     }
 
     func testSDRFramesHaveCorrectOrientationAndHostTimestamps() async throws {
+        try requireSurfaceInterop()
         let framesReady = expectation(description: "three decoded SDR frames")
         var frames: [ProbeFrame] = []
         var errors: [String] = []
@@ -70,6 +71,7 @@ final class PixelBufferBridgeTests: XCTestCase {
     }
 
     func testRetainingThreeBuffersAppliesBackpressureAndReleasingThemResumesOutput() async throws {
+        try requireSurfaceInterop()
         let full = expectation(description: "pool reaches three retained buffers")
         let resumed = XCTestExpectation(description: "rendering resumes after release")
         var held: [ProbeFrame] = []
@@ -105,4 +107,31 @@ final class PixelBufferBridgeTests: XCTestCase {
         await fulfillment(of: [resumed], timeout: 2)
         await withCheckedContinuation { continuation in engine.close { continuation.resume() } }
     }
+
+    private func requireSurfaceInterop() throws {
+        guard MPVPixelBufferOutput.supportsSurfaceInterop else {
+            throw XCTSkip("EAGL IOSurface API is absent from the simulator SDK; run this test on an iPhone")
+        }
+    }
+
+#if targetEnvironment(simulator)
+    func testSimulatorReportsUnsupportedOutputWithoutDeliveringFrames() async throws {
+        let unsupported = expectation(description: "explicit unsupported platform error")
+        let noFrames = expectation(description: "no substitute output")
+        noFrames.isInverted = true
+        var messages: [String] = []
+        let engine = FrameProbeEngine(receive: { _, event in
+            if case .failed(let message) = event {
+                messages.append(message)
+                unsupported.fulfill()
+            }
+        }, frames: { _ in noFrames.fulfill() })
+        engine.open(try fixture("sdr-pattern"), generation: UUID())
+        await fulfillment(of: [unsupported], timeout: 5)
+        await fulfillment(of: [noFrames], timeout: 0.2)
+        await withCheckedContinuation { continuation in engine.close { continuation.resume() } }
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertTrue(messages.first?.contains("模拟器不提供 EAGL IOSurface") == true)
+    }
+#endif
 }

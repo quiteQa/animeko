@@ -56,6 +56,10 @@ final class FrameProbeEngine: @unchecked Sendable {
     }
 
     private func initialize() {
+        guard MPVPixelBufferOutput.supportsSurfaceInterop else {
+            emit(.failed("模拟器不提供 EAGL IOSurface 输出, 请使用真机验证帧输出与画中画"))
+            return
+        }
         guard let handle = mpv_create() else { emit(.failed("mpv_create 失败")); return }
         self.handle = handle
         // copy 路径是当前 MPVKit 的 OpenGL 兼容性实验, 不是零复制/HDR 的正式实现.

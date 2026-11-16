@@ -22,6 +22,8 @@ targets:
         OTHER_CFLAGS: ['$(inherited)', '-Werror=objc-method-access']
     sources:
       - path: Sources
+      - path: Samples
+        buildPhase: resources
       - path: ../App/Sources/Features/Player/Support/FrameProbePolicy.swift
     info:
       path: .build/Info.plist
