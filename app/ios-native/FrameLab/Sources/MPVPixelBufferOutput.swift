@@ -6,7 +6,6 @@ import Libmpv
 import IOSurface
 import OpenGLES
 import OpenGLES.ES3
-import OpenGLES.EAGLIOSurface
 
 /// 控制队列写入, 渲染队列读取; 渲染队列仅调用明确允许的 mpv 时钟查询.
 final class ProbeState: @unchecked Sendable {
@@ -160,7 +159,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
             skip(renderer)
             return
         }
-        guard let surface = CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue() else {
+        guard CVPixelBufferGetIOSurface(pixelBuffer) != nil else {
             fail("pixel buffer 没有 IOSurface")
             skip(renderer)
             return
@@ -178,11 +177,7 @@ final class MPVPixelBufferOutput: @unchecked Sendable {
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_MAG_FILTER), GLint(GL_LINEAR))
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_WRAP_S), GLint(GL_CLAMP_TO_EDGE))
         glTexParameteri(GLenum(GL_TEXTURE_2D), GLenum(GL_TEXTURE_WRAP_T), GLint(GL_CLAMP_TO_EDGE))
-        let mapped = context.texImageIOSurface(
-            surface, target: .init(GL_TEXTURE_2D), internalFormat: .init(GL_RGBA),
-            width: UInt32(Self.width), height: UInt32(Self.height),
-            format: .init(GL_BGRA), type: .init(GL_UNSIGNED_BYTE), plane: 0
-        )
+        let mapped = ProbeBindSurfaceTexture(context, pixelBuffer)
         guard mapped else {
             fail("EAGL IOSurface texture mapping: GL error \(glGetError())")
             skip(renderer)

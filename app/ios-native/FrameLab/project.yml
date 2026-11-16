@@ -16,6 +16,10 @@ targets:
   NativeFrameLab:
     type: application
     platform: iOS
+    settings:
+      base:
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/ProbeSurfaceTexture.h
+        OTHER_CFLAGS: ['$(inherited)', '-Werror=objc-method-access']
     sources:
       - path: Sources
       - path: ../App/Sources/Features/Player/Support/FrameProbePolicy.swift
