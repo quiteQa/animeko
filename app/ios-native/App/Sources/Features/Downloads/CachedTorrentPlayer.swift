@@ -35,7 +35,10 @@ final class CachedTorrentPlayback: Identifiable {
         }
         player.onChange = { [weak self] in
             guard let self else { return }
-            position = player.position; duration = player.duration; paused = player.isPaused; ready = player.hasMedia
+            if abs(position - player.position) >= 0.25 { position = player.position }
+            if duration != player.duration { duration = player.duration }
+            if paused != player.isPaused { paused = player.isPaused }
+            if ready != player.hasMedia { ready = player.hasMedia }
             if abs(position - lastSaved) >= 5 { saveProgress() }
         }
         player.onLoadFailed = { [weak self] in self?.error = $0 }

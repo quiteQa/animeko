@@ -12,6 +12,7 @@ settings:
     SWIFT_VERSION: '5.0'
     DEVELOPMENT_TEAM: ''
     CODE_SIGN_STYLE: Automatic
+    ENABLE_DEBUG_DYLIB: NO
 targets:
   NativeMediaHost:
     type: application
@@ -45,10 +46,10 @@ targets:
       - path: Tests
       - path: ../FrameLab/Tests/Fixtures
         buildPhase: resources
+      - path: ../FrameLab/Samples/pip-sdr.mp4
+        buildPhase: resources
     dependencies:
       - target: NativeMediaHost
-      - package: MPVKit
-        product: MPVKit
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

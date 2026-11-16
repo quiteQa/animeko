@@ -1,6 +1,5 @@
 import AVFoundation
 import CoreVideo
-import Libmpv
 import XCTest
 @testable import NativeMediaHost
 
@@ -30,30 +29,20 @@ final class MediaRuntimeTests: XCTestCase {
     }
 
     func testSoftwareMpvFramesHavePixelsAndBoundedRetention() async throws {
-        let handle = try XCTUnwrap(mpv_create())
-        XCTAssertGreaterThanOrEqual(mpv_set_option_string(handle, "vo", "libmpv"), 0)
-        XCTAssertGreaterThanOrEqual(mpv_set_option_string(handle, "ao", "null"), 0)
-        XCTAssertGreaterThanOrEqual(mpv_set_option_string(handle, "hwdec", "no"), 0)
-        XCTAssertGreaterThanOrEqual(mpv_set_option_string(handle, "keep-open", "yes"), 0)
-        XCTAssertGreaterThanOrEqual(mpv_initialize(handle), 0)
-        let state = VideoFrameState(); let generation = UUID(); let epoch = UUID()
-        state.update { $0.generation = generation; $0.epoch = epoch; $0.metadataReady = true; $0.width = 640; $0.height = 360; $0.color = FrameProbeColor(primaries: "bt.709", transfer: "bt.709", dolbyVisionProfile: nil) }
+        let generation = UUID(); let epoch = UUID()
         var held: [VideoFrame] = []; var phase = 0; var errors: [String] = []
         let full = expectation(description: "three buffers retained")
         let noFourth = expectation(description: "pool bounded at three"); noFourth.isInverted = true
         let resumed = expectation(description: "frame output resumes")
-        let output = MPVSampleBufferOutput(state: state, receive: { frame in
+        let output = try SoftwareRenderHarness(generation: generation, epoch: epoch, receive: { frame in
             switch phase {
             case 0: held.append(frame); if held.count == 3 { phase = 1; full.fulfill() }
             case 1: noFourth.fulfill()
             case 2: phase = 3; resumed.fulfill()
             default: break
             }
-        }, failure: { message in Task { @MainActor in errors.append(message) } })
-        let error: String? = await withCheckedContinuation { continuation in output.initialize(handle: handle) { continuation.resume(returning: $0) } }
-        XCTAssertNil(error)
-        let load = "loadfile \"\(try fixture("sdr-pattern").path)\" replace"
-        XCTAssertGreaterThanOrEqual(load.withCString { mpv_command_string(handle, $0) }, 0)
+        }, failure: { message in errors.append(message) })
+        try await output.open(fixture("sdr-pattern"))
         await fulfillment(of: [full], timeout: 15)
         if let frame = held.first {
             XCTAssertEqual(frame.generation, generation); XCTAssertEqual(frame.epoch, epoch)
@@ -68,11 +57,9 @@ final class MediaRuntimeTests: XCTestCase {
             CVPixelBufferUnlockBaseAddress(frame.buffer, .readOnly)
         } else { XCTFail("no rendered frames") }
         await fulfillment(of: [noFourth], timeout: 0.2)
-        phase = 2; held.removeAll(); output.requestFrame(force: true)
+        phase = 2; held.removeAll(); output.requestFrame()
         await fulfillment(of: [resumed], timeout: 3)
-        state.update { $0.metadataReady = false }
-        await withCheckedContinuation { continuation in output.close { continuation.resume() } }
-        mpv_terminate_destroy(handle)
+        await output.close()
         XCTAssertTrue(errors.isEmpty, errors.joined(separator: ", "))
     }
 
@@ -94,6 +81,29 @@ final class MediaRuntimeTests: XCTestCase {
         try (initData + segmentData).write(to: combined)
         let converted = try await MediaInspection.inspect(url: combined.absoluteString, headers: [:])
         XCTAssertEqual(converted.width, info.width); XCTAssertEqual(converted.height, info.height); XCTAssertFalse(converted.isHDR)
+    }
+
+    func testStereoAudioSurvivesSeekingAndNativeHLSConversion() async throws {
+        let url = try fixture("pip-sdr").absoluteString
+        let info = try await MediaInspection.inspect(url: url, headers: [:])
+        XCTAssertGreaterThan(info.audioChannels, 0)
+        let writer = try AirPlayHLSWriter(url: url, headers: [:], info: info,
+            start: max(0, info.duration - 3), compatible1080: true)
+        defer { writer.cancel(); writer.cleanup() }
+        await writer.run()
+        let source = try await writer.resource("index.m3u8")
+        let data = try await source.read(offset: 0, count: Int(source.size))
+        let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertTrue(text.contains("#EXT-X-ENDLIST"))
+        let name = try XCTUnwrap(text.components(separatedBy: "\n").first { $0.hasSuffix(".m4s") })
+        let initialization = try Data(contentsOf: writer.directory.appendingPathComponent("init.mp4"))
+        let segment = try Data(contentsOf: writer.directory.appendingPathComponent(name))
+        let file = writer.directory.appendingPathComponent("audio-check.mp4")
+        try (initialization + segment).write(to: file)
+        let result = try await MediaInspection.inspect(url: file.absoluteString, headers: [:])
+        XCTAssertEqual(result.audioChannels, 2)
+        XCTAssertGreaterThan(result.duration, 2)
+        XCTAssertLessThan(result.duration, 4)
     }
 
     func testHDRPreflightRejectsEightBitAirPlayConversion() async throws {
