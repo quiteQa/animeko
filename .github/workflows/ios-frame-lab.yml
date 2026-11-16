@@ -12,7 +12,29 @@ concurrency:
   group: ios-frame-lab-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
+  sdk-interop:
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check public IOSurface API against device and simulator SDKs
+        run: |
+          status=0
+          for sdk in iphoneos iphonesimulator; do
+            sdk_path=$(xcrun --sdk "$sdk" --show-sdk-path)
+            target=arm64-apple-ios26.0
+            if [ "$sdk" = iphonesimulator ]; then target="$target-simulator"; fi
+            echo "Checking $sdk at $sdk_path"
+            sed -n '1,65p' "$sdk_path/System/Library/Frameworks/OpenGLES.framework/Headers/EAGLIOSurface.h"
+            if ! xcrun --sdk "$sdk" clang -target "$target" -isysroot "$sdk_path" \
+              -fobjc-arc -fmodules -fsyntax-only -Werror=objc-method-access \
+              app/ios-native/FrameLab/Sources/ProbeSurfaceTexture.m; then
+              status=1
+            fi
+          done
+          exit "$status"
   frame-bridge:
+    needs: sdk-interop
     runs-on: macos-26
     timeout-minutes: 35
     steps:
