@@ -28,6 +28,9 @@ final class ManualBrowseModel {
     private(set) var playError: String?
 
     /// 按源缓存的搜索: 切回同一关键字搜过的源直接显示, 不重复请求. 失败也缓存, 只在用户重试时重搜.
+    @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var searchRequest = UUID()
+    @ObservationIgnored private var subjectRequest = UUID()
     @ObservationIgnored private var searchCache: [String: (keyword: String, result: Load<[AniBrowseSubject]>)] = [:]
 
     var selectedSource: AniBrowseSource? {
@@ -35,6 +38,9 @@ final class ManualBrowseModel {
     }
 
     func reset() {
+        generation = UUID()
+        searchRequest = UUID()
+        isPlaying = false
         sources = []
         sourcesLoaded = false
         selectedSourceId = nil
@@ -47,10 +53,9 @@ final class ManualBrowseModel {
     /// 首次打开时加载可浏览的源与默认值, 并用默认关键字搜索默认源.
     func loadIfNeeded(session: AniEpisodeSession) async {
         guard !sourcesLoaded else { return }
-        guard let info = try? await session.browseSources() else {
-            sourcesLoaded = true
-            return
-        }
+        let generation = generation
+        guard let info = try? await session.browseSources(),
+              !Task.isCancelled, self.generation == generation else { return }
         sources = info.sources
         keyword = info.defaultKeyword
         selectedSourceId = info.defaultInstanceId
@@ -81,6 +86,9 @@ final class ManualBrowseModel {
         let keyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !keyword.isEmpty else { return }
         closeSubject()
+        let generation = generation
+        let request = UUID()
+        searchRequest = request
         results = .loading
         let result: Load<[AniBrowseSubject]>
         do {
@@ -88,29 +96,34 @@ final class ManualBrowseModel {
         } catch {
             result = .failed(Self.describe(error))
         }
+        guard !Task.isCancelled, self.generation == generation, searchRequest == request else { return }
         searchCache[sourceId] = (keyword, result)
         // 搜索期间用户可能已经换源; 只更新仍在看的源
-        if selectedSourceId == sourceId { results = result }
+        if selectedSourceId == sourceId, self.keyword.trimmingCharacters(in: .whitespacesAndNewlines) == keyword { results = result }
     }
 
     func openSubject(_ subject: AniBrowseSubject, session: AniEpisodeSession) async {
         guard let sourceId = selectedSourceId else { return }
+        let generation = generation
+        let request = UUID()
+        subjectRequest = request
         openedSubject = subject
         channels = .loading
         playError = nil
         do {
             let list = try await session.browseSubject(instanceId: sourceId, subject: subject)
-            guard openedSubject?.url == subject.url else { return }
+            guard !Task.isCancelled, self.generation == generation, subjectRequest == request, openedSubject?.url == subject.url else { return }
             channels = .loaded(list)
             // 默认选中有预选项的线路, 否则第一条
             selectedChannelIndex = list.first { $0.preselectedEpisodeIndex >= 0 }.map { Int($0.index) } ?? 0
         } catch {
-            guard openedSubject?.url == subject.url else { return }
+            guard !Task.isCancelled, self.generation == generation, subjectRequest == request, openedSubject?.url == subject.url else { return }
             channels = .failed(Self.describe(error))
         }
     }
 
     func closeSubject() {
+        subjectRequest = UUID()
         openedSubject = nil
         channels = .idle
         selectedChannelIndex = 0
@@ -121,9 +134,10 @@ final class ManualBrowseModel {
     /// - Returns: 是否成功提交选择 (成功后面板关闭, 播放由选择变化触发).
     func play(episodeIndex: Int, remember: Bool, session: AniEpisodeSession) async -> Bool {
         guard let sourceId = selectedSourceId, let subject = openedSubject, !isPlaying else { return false }
+        let generation = generation
         isPlaying = true
         playError = nil
-        defer { isPlaying = false }
+        defer { if self.generation == generation { isPlaying = false } }
         do {
             try await session.playBrowsed(
                 instanceId: sourceId,
@@ -132,8 +146,9 @@ final class ManualBrowseModel {
                 episodeIndex: Int32(episodeIndex),
                 remember: remember,
             )
-            return true
+            return !Task.isCancelled && self.generation == generation
         } catch {
+            guard !Task.isCancelled, self.generation == generation else { return false }
             playError = Self.describe(error)
             return false
         }

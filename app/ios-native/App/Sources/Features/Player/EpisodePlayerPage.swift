@@ -218,6 +218,8 @@ private struct InlinePlayer: View {
             PlayerSurface(player: model.player, isActive: !isCovered)
             DanmakuOverlay(
                 danmaku: model.visibleDanmaku(settings: services.settings),
+                renderKey: model.danmakuRenderKey(settings: services.settings),
+                isPlaybackAdvancing: model.isPlaying && !isCovered,
                 isEnabled: model.isDanmakuEnabled,
                 showsColor: services.settings?.danmakuShowColor ?? true,
                 currentTime: { [model] in model.playbackTime() },

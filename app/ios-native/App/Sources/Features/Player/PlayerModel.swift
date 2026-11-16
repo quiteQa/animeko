@@ -1,4 +1,5 @@
 import AniCore
+import AVFoundation
 import Foundation
 import Photos
 import UIKit
@@ -34,7 +35,10 @@ final class PlayerModel {
     private(set) var progress: AniFetchProgress?
     private(set) var sources: [AniMediaSourceStatus] = []
     private(set) var preferences: [AniPreference] = []
-    private(set) var danmaku: [AniDanmaku] = []
+    private(set) var danmaku: [AniDanmaku] = [] {
+        didSet { danmakuRevision = UUID() }
+    }
+    private var danmakuRevision = UUID()
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var isPlaying = false
@@ -79,6 +83,7 @@ final class PlayerModel {
     private(set) var pendingSkip: AniSkipSegment?
     /// 下一集 (已播出); 没有时为 `nil`.
     private(set) var nextEpisode: AniEpisode?
+    private(set) var previousEpisode: AniEpisode?
     /// 手动查找的状态, 关闭选源面板后保留.
     let manualBrowse = ManualBrowseModel()
 
@@ -89,12 +94,22 @@ final class PlayerModel {
     @ObservationIgnored private var settings: () -> AniSettings? = { nil }
     @ObservationIgnored private var session: AniEpisodeSession?
     /// 随当前剧集会话存续的任务, 切换剧集时取消.
-    @ObservationIgnored private var sessionTasks: [Task<Void, Never>] = []
-    @ObservationIgnored private var resolveTask: Task<Void, Never>?
+    @ObservationIgnored private let sessionWork = PlaybackTaskScope()
+    @ObservationIgnored private let mediaWork = PlaybackTaskScope()
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
+    @ObservationIgnored private var closeTask: Task<Void, Never>?
+    @ObservationIgnored private var stoppedTasks: [Task<Void, Never>] = []
+    @ObservationIgnored private var isStopped = false
+    @ObservationIgnored private var interruptionToken: PlaybackTaskScope.Token?
     @ObservationIgnored private var backgroundObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var lastReportedAt: TimeInterval = 0
-    /// 最近一次进度上报. 上报按顺序执行, 关闭会话前等待它完成.
-    @ObservationIgnored private var pendingReport: Task<Void, Never>?
+    @ObservationIgnored private var progressWriter: CoalescingProgressWriter<ProgressSnapshot>?
+
+    private struct ProgressSnapshot {
+        let position: Int64
+        let duration: Int64
+        let playing: Bool
+    }
     @ObservationIgnored private var skipTracker: AniSkipTracker?
     /// 为当前媒体加载过跳过片段 (成功或失败都不再重试)
     @ObservationIgnored private var skipSegmentsRequested = false
@@ -117,7 +132,7 @@ final class PlayerModel {
 
     /// 开始播放. `settings` 每次读取时返回当前设置.
     func start(core: AniClient, settings: @escaping () -> AniSettings?) {
-        guard self.core == nil else { return }
+        guard self.core == nil, !isStopped else { return }
         Diagnostics.log("播放页: 开始 \(target.subject.displayName) 第 \(target.episode.sort) 话")
         self.core = core
         self.settings = settings
@@ -132,18 +147,20 @@ final class PlayerModel {
 
     func select(_ candidate: AniMediaCandidate) {
         guard let session else { return }
-        Task { _ = try? await session.select(mediaId: candidate.mediaId) }
+        sessionWork.run { _ in _ = try? await session.select(mediaId: candidate.mediaId) }
     }
 
     /// 缓存正在播放的资源. 进度在 "我的 > 缓存管理" 查看.
     func downloadSelected() {
         guard let session else { return }
-        Task {
+        sessionWork.run { [weak self] token in
             do {
                 try await session.downloadSelected()
+                guard let self, sessionWork.accepts(token) else { return }
                 toastMessage = "已加入缓存"
             } catch {
-                toastMessage = "缓存失败: \(error.localizedDescription)"
+                guard let self, sessionWork.accepts(token) else { return }
+                toastMessage = "缓存失败, 请重试"
             }
         }
     }
@@ -159,6 +176,16 @@ final class PlayerModel {
     /// 已启用的弹幕源中的弹幕数量.
     var enabledDanmakuCount: Int {
         disabledDanmakuSources.isEmpty ? danmaku.count : danmaku.filter { !disabledDanmakuSources.contains($0.serviceId) }.count
+    }
+
+    func danmakuRenderKey(settings: AniSettings?) -> DanmakuRenderKey {
+        DanmakuRenderKey(
+            revision: danmakuRevision,
+            disabledSources: disabledDanmakuSources,
+            showsTop: settings?.danmakuShowTop ?? true,
+            showsBottom: settings?.danmakuShowBottom ?? true,
+            showsFloating: settings?.danmakuShowFloating ?? true,
+        )
     }
 
     func visibleDanmaku(settings: AniSettings?) -> [AniDanmaku] {
@@ -179,7 +206,7 @@ final class PlayerModel {
     /// 切换手动查找的 "记住选择"; 关闭时删除本条目的浏览记忆.
     func setRememberManualSelection(_ remember: Bool) {
         guard let session else { return }
-        Task { try? await session.setRememberManualSelection(remember: remember) }
+        sessionWork.run { _ in try? await session.setRememberManualSelection(remember: remember) }
     }
 
     func retrySource(_ source: AniMediaSourceStatus) {
@@ -188,7 +215,7 @@ final class PlayerModel {
 
     func setPreference(key: String, value: String?) {
         guard let session else { return }
-        Task { try? await session.setPreference(key: key, value: value) }
+        sessionWork.run { _ in try? await session.setPreference(key: key, value: value) }
     }
 
     /// 数据源 ID 对应的显示名称.
@@ -221,12 +248,13 @@ final class PlayerModel {
     /// 截取当前画面并保存到相册.
     func saveScreenshot() {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("screenshot-\(UUID().uuidString).png")
-        guard hasMedia, player.screenshot(to: file), let photo = UIImage(contentsOfFile: file.path) else {
-            toastMessage = "暂时无法截图"
-            return
-        }
-        try? FileManager.default.removeItem(at: file)
+        guard hasMedia else { toastMessage = "暂时无法截图"; return }
         Task {
+            defer { try? FileManager.default.removeItem(at: file) }
+            guard await player.screenshot(to: file), let photo = UIImage(contentsOfFile: file.path) else {
+                if !isStopped { toastMessage = "暂时无法截图" }
+                return
+            }
             let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard status == .authorized || status == .limited else {
                 toastMessage = "没有相册权限, 请在设置中允许 Animeko 添加照片"
@@ -244,8 +272,8 @@ final class PlayerModel {
     }
 
     func seek(to seconds: TimeInterval) {
+        guard !isStopped, seconds.isFinite else { return }
         player.seek(to: seconds)
-        currentTime = seconds
     }
 
     func skip(by seconds: TimeInterval) {
@@ -271,7 +299,7 @@ final class PlayerModel {
         let position = currentTime
         skip(by: TimeInterval(manualSkipSeconds))
         guard let session else { return }
-        Task { try? await session.reportManualSkip(positionMillis: Int64(position * 1000)) }
+        sessionWork.run { _ in try? await session.reportManualSkip(positionMillis: Int64(position * 1000)) }
     }
 
     /// 取消即将进行的自动跳过.
@@ -281,12 +309,6 @@ final class PlayerModel {
     }
 
     // MARK: - 剧集
-
-    /// 上一集; 当前是第一集或剧集未加载时为 `nil`.
-    var previousEpisode: AniEpisode? {
-        guard let index = episodes.firstIndex(where: { $0.id == target.episode.id }), index > 0 else { return nil }
-        return episodes[index - 1]
-    }
 
     func playPreviousEpisode() {
         guard let previous = previousEpisode else { return }
@@ -302,10 +324,12 @@ final class PlayerModel {
 
     /// 在当前播放页内切换到 `episode`: 保存旧剧集的进度并关闭其会话, 再为新剧集查询资源.
     func play(episode: AniEpisode) {
-        guard episode.id != target.episode.id, !isSwitchingEpisode else { return }
+        guard !isStopped, episode.id != target.episode.id, !isSwitchingEpisode else { return }
         isSwitchingEpisode = true
-        Task {
+        transitionTask = Task { [weak self] in
+            guard let self else { return }
             await closeSession()
+            guard !isStopped, !Task.isCancelled else { return }
             resetEpisodeState()
             target = PlaybackTarget(subject: target.subject, episode: episode)
             isSwitchingEpisode = false
@@ -314,12 +338,18 @@ final class PlayerModel {
     }
 
     func stop() {
+        guard !isStopped else { return }
+        isStopped = true
+        stoppedTasks = sessionWork.close() + mediaWork.close()
+        manualBrowse.reset()
+        transitionTask?.cancel()
         playerTasks.forEach { $0.cancel() }
         playerTasks.removeAll()
         core?.watchTogether.clearWatching()
         backgroundObservers.forEach { NotificationCenter.default.removeObserver($0) }
         backgroundObservers.removeAll()
         player.onChange = nil
+        player.onReady = nil
         player.onEndOfFile = nil
         player.onLoadFailed = nil
         player.pause()
@@ -332,61 +362,102 @@ final class PlayerModel {
     // MARK: - 会话
 
     private func openSession() {
-        guard let core else { return }
+        guard let core, !isStopped else { return }
         let session = core.openEpisode(subjectId: target.subject.id, episodeId: target.episode.id)
         self.session = session
+        progressWriter = CoalescingProgressWriter { snapshot in
+            do {
+                try await session.reportPlayback(positionMillis: snapshot.position, durationMillis: snapshot.duration, isPlaying: snapshot.playing)
+            } catch {
+                Diagnostics.log("播放进度本地保存失败, episode=\(session.episodeId)")
+            }
+        }
 
-        sessionTasks.append(Task { [weak self] in
-            for await list in session.candidateUpdates(preferredOnly: false) { self?.candidates = list }
-        })
-        sessionTasks.append(Task { [weak self] in
-            for await list in session.candidateUpdates(preferredOnly: true) { self?.preferredCandidates = list }
-        })
-        sessionTasks.append(Task { [weak self] in
-            for await progress in session.fetchProgressUpdates { self?.progress = progress }
-        })
-        sessionTasks.append(Task { [weak self] in
-            for await sources in session.sourceUpdates { self?.sources = sources }
-        })
-        sessionTasks.append(Task { [weak self] in
-            for await preferences in session.preferenceUpdates { self?.preferences = preferences }
-        })
-        sessionTasks.append(Task { [weak self] in
+        sessionWork.run { [weak self] token in
+            for await list in session.candidateUpdates(preferredOnly: false) {
+                guard let self, sessionWork.accepts(token) else { return }
+                candidates = list
+            }
+        }
+        sessionWork.run { [weak self] token in
+            for await list in session.candidateUpdates(preferredOnly: true) {
+                guard let self, sessionWork.accepts(token) else { return }
+                preferredCandidates = list
+            }
+        }
+        sessionWork.run { [weak self] token in
+            for await progress in session.fetchProgressUpdates {
+                guard let self, sessionWork.accepts(token) else { return }
+                self.progress = progress
+            }
+        }
+        sessionWork.run { [weak self] token in
+            for await sources in session.sourceUpdates {
+                guard let self, sessionWork.accepts(token) else { return }
+                self.sources = sources
+            }
+        }
+        sessionWork.run { [weak self] token in
+            for await preferences in session.preferenceUpdates {
+                guard let self, sessionWork.accepts(token) else { return }
+                self.preferences = preferences
+            }
+        }
+        sessionWork.run { [weak self] token in
             for await candidate in session.selectionUpdates {
-                guard let self else { return }
+                guard let self, sessionWork.accepts(token) else { return }
                 let changed = candidate?.mediaId != selected?.mediaId
                 selected = candidate
                 if changed, candidate != nil { play(session: session) }
             }
-        })
-        sessionTasks.append(Task { [weak self] in
+        }
+        sessionWork.run { [weak self] token in
             do {
                 let chosen = try await session.autoSelect()
-                if chosen == nil, self?.selected == nil { self?.phase = .noSource }
+                guard let self, sessionWork.accepts(token) else { return }
+                if chosen == nil, selected == nil { phase = .noSource }
             } catch {
-                if self?.selected == nil { self?.phase = .failed(error.localizedDescription) }
+                guard let self, sessionWork.accepts(token) else { return }
+                if selected == nil { phase = .failed(Self.describe(error)) }
             }
-        })
-        sessionTasks.append(Task { [weak self] in
-            // 弹幕失败不影响播放
-            if let list = try? await session.fetchDanmaku() { self?.danmaku = list }
-        })
-        sessionTasks.append(Task { [weak self] in
-            self?.nextEpisode = try? await session.nextEpisode()
-        })
+        }
+        sessionWork.run { [weak self] token in
+            guard let list = try? await session.fetchDanmaku(),
+                  let self, sessionWork.accepts(token) else { return }
+            danmaku = list
+        }
+        sessionWork.run { [weak self] token in
+            let next = try? await session.nextEpisode()
+            let previous = try? await session.previousEpisode()
+            guard let self, sessionWork.accepts(token) else { return }
+            nextEpisode = next
+            previousEpisode = previous
+        }
     }
 
-    /// 上报最后的进度, 停止本集的任务并关闭 Kotlin 会话.
+    /// 最后一次本地保存完成后释放会话; 关闭期间禁止旧任务发布结果.
     private func closeSession() async {
+        if let closeTask { await closeTask.value; return }
         reportProgress(force: true)
-        sessionTasks.forEach { $0.cancel() }
-        sessionTasks.removeAll()
-        resolveTask?.cancel()
-        resolveTask = nil
+        let tasks = stoppedTasks + sessionWork.invalidate() + mediaWork.invalidate()
+        stoppedTasks.removeAll()
+        manualBrowse.reset()
         let session = self.session
+        let writer = progressWriter
         self.session = nil
-        await pendingReport?.value
-        session?.close()
+        progressWriter = nil
+        // 先停止读取当前代理资源, 再释放 Kotlin 解析会话.
+        player.stop()
+        let player = player
+        let closing = Task {
+            for task in tasks { await task.value }
+            await player.flushCommands()
+            await writer?.flush()
+            session?.close()
+        }
+        closeTask = closing
+        await closing.value
+        closeTask = nil
     }
 
     private func resetEpisodeState() {
@@ -404,6 +475,9 @@ final class PlayerModel {
         currentTime = 0
         duration = 0
         nextEpisode = nil
+        previousEpisode = nil
+        isPlaying = false
+        networkSpeed = 0
         manualBrowse.reset()
         lastReportedAt = 0
         resetSkipState()
@@ -418,13 +492,18 @@ final class PlayerModel {
     // MARK: - 播放
 
     private func play(session: AniEpisodeSession) {
-        Diagnostics.log("播放页: 解析选中的资源")
-        resolveTask?.cancel()
+        let previousTasks = mediaWork.invalidate()
         reportProgress(force: true)
-        phase = .resolving
-        // 换源时从当前位置继续; 首次播放从上次记录的位置开始
         let switchingAt = hasMedia ? currentTime : nil
-        resolveTask = Task { [weak self] in
+        player.stop()
+        phase = .resolving
+        let sessionToken = sessionWork.token
+        mediaWork.run { [weak self] token in
+            // resolveSelected 会释放旧解析资源, 必须先等上一解析退出.
+            for task in previousTasks { await task.value }
+            guard let self, mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { return }
+            await player.flushCommands()
+            guard mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { return }
             do {
                 let resumeAt: TimeInterval
                 if let switchingAt {
@@ -433,41 +512,31 @@ final class PlayerModel {
                     resumeAt = TimeInterval((try? await session.resumePositionMillis()) ?? 0) / 1000
                 }
                 let playable = try await session.resolveSelected(startPositionMillis: Int64(resumeAt * 1000))
-                guard let self, !Task.isCancelled else { return }
-                Diagnostics.log("播放页: 已解析资源")
+                guard mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { return }
                 self.playable = playable
-                // 换源后时间轴可能不同, 重新加载跳过片段
                 resetSkipState()
                 player.setSpeed(Double(playbackRate))
-                player.load(
-                    url: playable.url,
-                    headers: playable.headers,
-                    start: resumeAt,
-                    autoplay: !holdsForWatchTogether(),
-                )
+                player.load(url: playable.url, headers: playable.headers, start: resumeAt, autoplay: !holdsForWatchTogether())
                 currentTime = resumeAt
-                phase = .playing
-                startPlaybackAfterLoad()
+                // phase 由 mpv 的 PLAYBACK_RESTART 确认, 命令提交成功不代表媒体可播放.
             } catch {
-                guard let self, !Task.isCancelled else { return }
+                guard mediaWork.accepts(token), sessionWork.accepts(sessionToken) else { return }
                 phase = .failed(Self.describe(error))
             }
         }
     }
 
-    /// 上报进度给 Kotlin 侧保存, 并在看到 90% 时标记看过. 播放中每 `reportInterval` 秒一次; `force` 时立即上报.
     private func reportProgress(force: Bool = false) {
-        guard let session, duration > 0, currentTime > 0 else { return }
+        guard let session, duration.isFinite, currentTime.isFinite, duration > 0, currentTime > 0 else { return }
         guard force || currentTime - lastReportedAt >= Self.reportInterval || currentTime < lastReportedAt else { return }
         lastReportedAt = currentTime
-        let position = Int64(currentTime * 1000)
-        let total = Int64(duration * 1000)
-        let playing = isPlaying
-        let previous = pendingReport
-        pendingReport = Task {
-            await previous?.value
-            try? await session.reportPlayback(positionMillis: position, durationMillis: total, isPlaying: playing)
-        }
+        let snapshot = ProgressSnapshot(
+            position: Int64(min(currentTime, duration) * 1000),
+            duration: Int64(duration * 1000),
+            playing: isPlaying,
+        )
+        session.notePlayback(positionMillis: snapshot.position, durationMillis: snapshot.duration, isPlaying: snapshot.playing)
+        progressWriter?.submit(snapshot)
     }
 
     /// 时长已知后为当前媒体加载一次跳过片段 (需要开启自动跳过).
@@ -475,9 +544,9 @@ final class PlayerModel {
         guard !skipSegmentsRequested, duration > 0, let session, settings()?.autoSkipOpEd == true else { return }
         skipSegmentsRequested = true
         let durationMillis = Int64(duration * 1000)
-        Task { [weak self] in
+        mediaWork.run { [weak self] token in
             guard let segments = try? await session.skipSegments(videoDurationMillis: durationMillis),
-                  !segments.isEmpty, let self, self.session === session else { return }
+                  !segments.isEmpty, let self, mediaWork.accepts(token), self.session === session else { return }
             skipTracker = AniSkipTracker(segments: segments)
         }
     }
@@ -497,25 +566,65 @@ final class PlayerModel {
 
     private func observePlayer() {
         player.setEnhancement(enhancementMode.rawValue)
-        player.onChange = { [weak self] in
-            MainActor.assumeIsolated { self?.onPlayerChanged() }
+        player.onChange = { [weak self] in self?.onPlayerChanged() }
+        player.onReady = { [weak self] in
+            guard let self, !isStopped, session != nil, phase == .resolving else { return }
+            phase = .playing
+            startPlaybackAfterLoad()
         }
         player.onEndOfFile = { [weak self] in
-            MainActor.assumeIsolated { self?.onPlayedToEnd() }
+            self?.onPlayedToEnd()
         }
         player.onLoadFailed = { [weak self] message in
-            MainActor.assumeIsolated { self?.onLoadFailed(message) }
+            self?.onLoadFailed(message)
         }
         // 后台只保留声音; 回到前台恢复画面
         let center = NotificationCenter.default
         backgroundObservers = [
             center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.player.setVideoEnabled(false) }
+                MainActor.assumeIsolated {
+                    self?.reportProgress(force: true)
+                    self?.player.setVideoEnabled(false)
+                }
             },
             center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.player.setVideoEnabled(true) }
             },
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated { self?.handleAudioInterruption(notification) }
+            },
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                          reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue else { return }
+                    self.interruptionToken = nil
+                    self.player.pause()
+                }
+            },
         ]
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard !isStopped,
+              let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+        switch type {
+        case .began:
+            interruptionToken = isPlaying ? sessionWork.token : nil
+            player.pause()
+            reportProgress(force: true)
+        case .ended:
+            let options = (notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt) ?? 0
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume)
+            defer { interruptionToken = nil }
+            guard shouldResume, let interruptionToken, sessionWork.accepts(interruptionToken) else { return }
+            do {
+                try AVAudioSession.sharedInstance().setActive(true)
+                player.play()
+            } catch { toastMessage = "音频恢复失败, 请点按播放重试" }
+        @unknown default: break
+        }
     }
 
     private func onPlayerChanged() {
@@ -542,7 +651,7 @@ final class PlayerModel {
     }
 
     private func onLoadFailed(_ message: String) {
-        guard phase == .playing else { return }
+        guard !isStopped, phase == .playing || phase == .resolving else { return }
         phase = .failed("视频加载失败 (\(message)), 请换一个资源")
     }
 

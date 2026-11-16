@@ -104,7 +104,7 @@ import kotlin.time.Duration
  * [MediaSelectorAutoSelectUseCase] 与 [MediaResolver], 因此选源规则与 Animeko 其他平台一致.
  * 本类只负责把结果翻译成 facade 值类型, 不持有任何界面状态.
  *
- * 播放器由 Swift 持有: [resolveSelected] 返回可播放地址, Swift 用它创建 `AVPlayerItem`.
+ * 播放器由 Swift 持有: [resolveSelected] 返回可播放地址, Swift 把地址与请求头交给 mpv.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AniEpisodeSession internal constructor(
@@ -152,6 +152,7 @@ class AniEpisodeSession internal constructor(
     private var resolveJob: Job? = null
     private var hlsProxySession: HlsPlaybackProxySession? = null
     private var markedWatched = false
+    private val completionTracker = PlaybackCompletionTracker()
 
     init {
         // MediaFetchSession 只在 cumulativeResults 被持续收集时查询, 停止收集会中断查询.
@@ -229,6 +230,14 @@ class AniEpisodeSession internal constructor(
     }
 
     /**
+     * 同步记录播放完成事实, 不执行 IO. Swift 在合并待保存快照前调用.
+     * 即使接下来的快照是暂停或回看开头, 已发生的完成事实也由本会话保留.
+     */
+    fun notePlayback(positionMillis: Long, durationMillis: Long, isPlaying: Boolean) {
+        completionTracker.observe(positionMillis, durationMillis, isPlaying)
+    }
+
+    /**
      * 上报播放进度. Swift 在播放中定期 (约每 5 秒) 以及暂停, 退出时调用.
      *
      * 保存播放位置; 正在播放且看到 90% 时把本集标记为看过 (每个会话最多一次), 规则与上游一致.
@@ -236,6 +245,7 @@ class AniEpisodeSession internal constructor(
     @Throws(Exception::class)
     suspend fun reportPlayback(positionMillis: Long, durationMillis: Long, isPlaying: Boolean) {
         if (!PlaybackProgressPolicy.shouldSave(positionMillis, durationMillis)) return
+        notePlayback(positionMillis, durationMillis, isPlaying)
         val info = infoBundle.first()
         playHistoryRepository.saveOrUpdate(
             episodeId = episodeId,
@@ -247,13 +257,13 @@ class AniEpisodeSession internal constructor(
             episodeName = info.episodeInfo.displayName,
             durationMillis = durationMillis,
         )
-        if (isPlaying && !markedWatched && PlaybackProgressPolicy.shouldMarkWatched(positionMillis, durationMillis)) {
-            markedWatched = true
+        if (!markedWatched && completionTracker.hasReachedCompletion) {
             if (!settingsRepository.videoScaffoldConfig.flow.first().autoMarkDone) return
             val current = getEpisodeCollectionType(subjectId, episodeId, allowNetwork = false)
             if (current?.isDoneOrDropped() != true) {
                 setEpisodeCollectionType(subjectId, episodeId, UnifiedCollectionType.DONE)
             }
+            markedWatched = true
         }
     }
 
@@ -525,7 +535,7 @@ class AniEpisodeSession internal constructor(
     }
 
     /**
-     * 与上游 `PlayerSession` 相同的 HLS 去广告判断. 本客户端不做自动跳过 OP/ED, 因此不需要代理分片.
+     * 与上游 `PlayerSession` 相同的 HLS 去广告判断. 分片不经代理预取, OP/ED 使用服务器跳过点.
      */
     private suspend fun prepareHls(data: UriMediaData, media: Media, startPositionMillis: Long): UriMediaData {
         val config = getVideoScaffoldConfig().first()
@@ -585,10 +595,16 @@ class AniEpisodeSession internal constructor(
      * 自动播放时的下一集: 剧集列表中紧随本集且确定已播出的一集. 没有时为 `null`. 与上游规则相同.
      */
     @Throws(Exception::class)
-    suspend fun nextEpisode(): AniEpisode? {
+    suspend fun nextEpisode(): AniEpisode? = neighborEpisode(offset = 1)
+
+    /** 同类型的上一集, 只返回确定已播出的剧集. */
+    @Throws(Exception::class)
+    suspend fun previousEpisode(): AniEpisode? = neighborEpisode(offset = -1)
+
+    private suspend fun neighborEpisode(offset: Int): AniEpisode? {
         val subject = infoBundle.first().subjectCollectionInfo
         return subject.episodes
-            .findNeighborEpisode(episodeId, offset = 1)
+            .findNeighborEpisode(episodeId, offset)
             ?.takeIf { with(EpisodeCompletionContext) { it.episodeInfo.isKnownCompleted(subject.recurrence) } }
             ?.toAniEpisode()
     }

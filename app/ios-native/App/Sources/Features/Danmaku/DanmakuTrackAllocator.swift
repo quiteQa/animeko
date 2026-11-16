@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 弹幕轨道分配. 纯逻辑, 不依赖 UIKit:

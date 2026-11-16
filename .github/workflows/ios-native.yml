@@ -8,6 +8,7 @@ on:
   push:
     branches:
     - 'claude/**'
+    - 'codex/**'
     paths:
     - 'app/ios-native/**'
     - '!app/ios-native/libtorrent/**'
@@ -115,6 +116,9 @@ jobs:
         exit 1
 
     # pod install 要求 AniCore.framework 已存在, 先生成占位 framework; 真正的 framework 在 xcodebuild 时编译
+    - name: 'Run Kotlin facade regression tests'
+      run: ./gradlew :app:ios-native:core:desktopTest "-Dorg.gradle.jvmargs=-Xmx5g" "-Dkotlin.daemon.jvm.options=-Xmx5g"
+
     - name: 'Prepare FFmpeg runtime and AniCore podspec'
       run: >-
         ./gradlew

@@ -30,6 +30,8 @@ struct PlayerScreen: View {
 
             DanmakuOverlay(
                 danmaku: model.visibleDanmaku(settings: services.settings),
+                renderKey: model.danmakuRenderKey(settings: services.settings),
+                isPlaybackAdvancing: model.isPlaying && ownsVideo,
                 isEnabled: model.isDanmakuEnabled,
                 showsColor: services.settings?.danmakuShowColor ?? true,
                 currentTime: { [model] in model.playbackTime() },
