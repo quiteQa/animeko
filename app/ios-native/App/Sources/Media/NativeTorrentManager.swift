@@ -78,6 +78,10 @@ final class NativeTorrent: @unchecked Sendable {
         let selected = try await MediaIO.run { ANITSelectFile(self.pointer, file.id) }
         guard selected != 0 else { throw MediaTransportError.unavailable }
     }
+    var magnetURI: String? {
+        var uri = [CChar](repeating: 0, count: 16_384)
+        return ANITCopyMagnetURI(pointer, &uri, uri.count) != 0 ? String(cString: uri) : nil
+    }
     func pause(_ value: Bool) { ANITSetPaused(pointer, value ? 1 : 0) }
     func save() { ANITSaveResume(pointer) }
     func remove() { ANITRemove(pointer, 1) }
@@ -138,6 +142,7 @@ final class NativeTorrentManager {
         let subjectID: Int32
         let episodeID: Int32
         var fileIndex: Int32?
+        var cachedMagnet: String?
         var keepDownloading = false
         var downloadMarked = false
         var paused = false
@@ -210,13 +215,15 @@ final class NativeTorrentManager {
         if let opening = entry.opening { return try await opening.value }
         let task = Task {
             let engine = try await getEngine()
-            let torrent = try await engine.add(entry.record.uri, headers: headers,
+            let torrent = try await engine.add(entry.record.cachedMagnet ?? entry.record.uri, headers: headers,
                 directory: root.appendingPathComponent("Content", isDirectory: true))
             do { _ = try await torrent.files(); try Task.checkCancellation() }
             catch { torrent.pause(true); torrent.save(); throw error }
             guard !entry.deleted else { torrent.remove(); throw CancellationError() }
             let files = try await torrent.files()
             if let index = entry.record.fileIndex, let file = files.first(where: { $0.id == index }) { try await torrent.select(file) }
+            entry.record.cachedMagnet = torrent.magnetURI
+            torrent.save(); persist()
             entry.torrent = torrent
             return torrent
         }
@@ -266,6 +273,14 @@ final class NativeTorrentManager {
                 torrent.save(); self.persist()
             }
         } catch { entry.readers -= 1; if entry.readers == 0 && !entry.record.keepDownloading { torrent.pause(true) }; throw error }
+    }
+    func openSaved(_ id: UUID) async throws -> TorrentPlaybackLease {
+        guard let entry = entries.first(where: { $0.id == id }), let index = entry.record.fileIndex else { throw MediaTransportError.unavailable }
+        let torrent = try await prepare(entry, headers: [:])
+        let files = try await torrent.files()
+        guard let file = files.first(where: { $0.id == index }) else { throw MediaTransportError.unavailable }
+        return try await open(uri: entry.record.uri, title: entry.record.title, headers: [:],
+            subject: entry.record.subjectID, episode: entry.record.episodeID) { paths in paths.firstIndex(of: file.path) ?? -1 }
     }
     func retainDownload(_ id: UUID) {
         guard let entry = entries.first(where: { $0.id == id }) else { return }

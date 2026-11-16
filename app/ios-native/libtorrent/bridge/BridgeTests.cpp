@@ -75,7 +75,24 @@ int main(int argc, char **argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(25));
     }
     assert(saved);
+    char magnet[16384]{};
+    assert(ANITCopyMagnetURI(torrent, magnet, sizeof magnet) == 1);
     ANITTrimReadCache(torrent);
+    ANITCloseTorrent(torrent);
+    // Closing a reader must leave the same torrent reopenable in the running engine.
+    torrent = ANITAddMagnet(engine, magnet, (root / "download").string().c_str(), error, sizeof error);
+    assert(torrent && ANITFileCount(torrent) == 1);
+    ANITCloseTorrent(torrent);
+    ANITDestroyEngine(engine);
+    // A saved metadata dictionary and verified pieces are readable without the seed.
+    seedSession.remove_torrent(seed);
+    engine = ANITCreateEngine(error, sizeof error); assert(engine);
+    torrent = ANITAddMagnet(engine, magnet, (root / "download").string().c_str(), error, sizeof error);
+    assert(torrent && ANITFileCount(torrent) == 1);
+    assert(ANITSelectFile(torrent, 0) == 1);
+    count = ANITRead(torrent, 0, 299900, bytes, sizeof bytes, 10000, nullptr);
+    assert(count == 100);
+    for (int i = 0; i < count; ++i) assert(bytes[i] == uint8_t(expected[299900 + i]));
     ANITRemove(torrent, 0);
     ANITCloseTorrent(torrent);
     ANITDestroyEngine(engine);

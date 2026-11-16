@@ -42,6 +42,8 @@ final class AirPlaySession {
             MainActor.assumeIsolated { self?.tick(time.seconds) }
         }
     }
+    deinit { if let periodic { player.removeTimeObserver(periodic) } }
+
     func prepare(url: String, headers: [String: String], start: Double, compatible1080: Bool) async {
         guard state != .preparing else { return }
         stop(notify: false)
@@ -79,11 +81,11 @@ final class AirPlaySession {
         itemObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard item.status == .failed else { return }
             Task { @MainActor in
-                guard let self, generation == expected else { return }
-                let connected = isConnected
-                releasePipeline(); player.pause(); player.replaceCurrentItem(with: nil)
-                state = .failed("接收器无法播放本机视频，请检查 Wi-Fi、局域网权限或尝试 1080p 兼容模式")
-                if connected { onConnection?(false, position) }
+                guard let self, self.generation == expected else { return }
+                let connected = self.isConnected
+                self.releasePipeline(); self.player.pause(); self.player.replaceCurrentItem(with: nil)
+                self.state = .failed("接收器无法播放本机视频，请检查 Wi-Fi、局域网权限或尝试 1080p 兼容模式")
+                if connected { self.onConnection?(false, self.position) }
             }
         }
         player.replaceCurrentItem(with: item)
@@ -96,6 +98,7 @@ final class AirPlaySession {
         if active {
             let wasConnected = isConnected
             state = .connected; player.isMuted = false
+            if !wasConnected { player.seek(to: .zero) }
             player.playImmediately(atRate: desiredRate)
             if !wasConnected { installRemoteCommands(); onConnection?(true, position) }
         } else if isConnected && !changingItem {

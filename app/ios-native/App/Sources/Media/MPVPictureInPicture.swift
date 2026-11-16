@@ -28,6 +28,8 @@ final class MPVPictureInPicture: NSObject {
     private var delegate: MPVPictureInPictureDelegate!
     private var hasFrame = false
     private var startRequested = false
+    private var lastPaused = true
+    private var lastDuration = 0.0
 
     override init() {
         super.init()
@@ -56,13 +58,14 @@ final class MPVPictureInPicture: NSObject {
 
     func update(position: Double, duration: Double, speed: Double, paused: Bool) {
         let host = CMClockGetTime(CMClockGetHostTimeClock())
-        if timeline.update(position: position, duration: duration, speed: speed, paused: paused, hostTime: host.seconds),
-           let timebase = view.displayLayer.controlTimebase {
+        let changed = timeline.update(position: position, duration: duration, speed: speed, paused: paused, hostTime: host.seconds)
+        if changed, let timebase = view.displayLayer.controlTimebase {
             CMTimebaseSetRateAndAnchorTime(timebase, rate: timeline.rate,
                 anchorTime: CMTime(seconds: timeline.mediaAnchor, preferredTimescale: 1_000_000), immediateSourceTime: host)
         }
         delegate.update(paused: paused, duration: timeline.duration)
-        controller?.invalidatePlaybackState()
+        if changed || lastPaused != paused || lastDuration != timeline.duration { controller?.invalidatePlaybackState() }
+        lastPaused = paused; lastDuration = timeline.duration
         startIfPossible()
     }
     func enqueue(_ frame: VideoFrame) {

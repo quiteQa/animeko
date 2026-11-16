@@ -42,6 +42,8 @@ struct DownloadsScreen: View {
                             Text(entry.error ?? (entry.paused ? "已暂停" : entry.metadataReady ? "\(Int(entry.progress * 100))% · \(ByteCountFormatter.string(fromByteCount: entry.speed, countStyle: .file))/s · \(entry.peers) 个连接" : "获取种子元数据…"))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
+                        .contentShape(.rect)
+                        .onTapGesture { services.cachedPlayback = CachedTorrentPlayback(entry: entry) }
                         .swipeActions {
                             Button("删除", systemImage: "trash", role: .destructive) { torrents.delete(entry) }
                             Button(entry.paused ? "继续" : "暂停", systemImage: entry.paused ? "play" : "pause") { torrents.setPaused(entry, !entry.paused) }

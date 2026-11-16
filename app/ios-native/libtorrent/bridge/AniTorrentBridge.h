@@ -24,6 +24,7 @@ int32_t ANITListenPort(ANITEngine *engine);
 ANITTorrent *ANITAddMagnet(ANITEngine *, const char *uri, const char *directory, char *error, size_t capacity);
 ANITTorrent *ANITAddTorrent(ANITEngine *, const uint8_t *data, size_t size, const char *directory, char *error, size_t capacity);
 void ANITCloseTorrent(ANITTorrent *torrent);
+int32_t ANITCopyMagnetURI(ANITTorrent *, char *buffer, size_t capacity);
 int32_t ANITFileCount(ANITTorrent *torrent);
 int32_t ANITFileInfo(ANITTorrent *, int32_t index, char *path, size_t capacity, int64_t *size);
 int32_t ANITSelectFile(ANITTorrent *, int32_t index);

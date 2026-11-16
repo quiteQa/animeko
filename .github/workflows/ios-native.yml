@@ -25,6 +25,7 @@ jobs:
     permissions:
       contents: 'read'
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
       JBR_FILE: 'jbrsdk_jcef-21.0.11-osx-x64-b1163.125.tar.gz'
     steps:
     - uses: 'actions/checkout@v6'

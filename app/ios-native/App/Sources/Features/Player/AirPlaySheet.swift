@@ -15,8 +15,7 @@ struct AirPlaySheet: View {
                     Text("手机将视频转换为 H.264 / AAC，通过局域网发送视频流。BT、MKV 和在线源使用同一路径。转换会消耗电量；请保持 Wi-Fi 连接。")
                         .font(.footnote).foregroundStyle(.secondary)
                     Button("准备视频投送") {
-                        guard let url = model.playbackURL else { return }
-                        Task { await model.airPlay.prepare(url: url, headers: model.playable?.headers ?? [:], start: model.currentTime, compatible1080: compatible1080) }
+                        Task { await model.prepareAirPlay(compatible1080: compatible1080) }
                     }.disabled(model.playbackURL == nil || model.airPlay.state == .preparing || model.airPlay.isConnected)
                 }
                 Section("连接接收器") {
@@ -30,12 +29,13 @@ struct AirPlaySheet: View {
                     if model.airPlay.state == .ready || model.airPlay.isConnected {
                         AirPlayRouteButton().frame(height: 44).accessibilityLabel("选择 AirPlay 视频接收器")
                     }
-                    if model.airPlay.state != .idle { Button("结束投送") { model.airPlay.stop() } }
+                    if model.airPlay.state != .idle { Button("结束投送") { model.airPlay.stop(); model.cancelPreparedAirPlay() } }
                 }
             }
             .navigationTitle("AirPlay 视频投送")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .onDisappear { model.cancelPreparedAirPlay() }
         .presentationDetents([.medium, .large])
     }
 }

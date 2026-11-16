@@ -82,6 +82,9 @@ private struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        .fullScreenCover(item: Binding(get: { services.cachedPlayback }, set: { services.cachedPlayback = $0 })) { model in
+            NavigationStack { CachedTorrentPlayer(model: model) }
+        }
         .fullScreenCover(item: Binding(get: { services.restoredPlayback }, set: { services.restoredPlayback = $0 })) { item in
             NavigationStack { EpisodePlayerPage(model: item.model) }
         }
@@ -126,6 +129,8 @@ final class AppServices {
 
     var isLoggedIn: Bool { session?.loggedIn == true }
 
+    var cachedPlayback: CachedTorrentPlayback?
+    var backgroundCachePlayback: CachedTorrentPlayback?
     var backgroundPlayback: PlayerModel?
     var restoredPlayback: RestoredPlayback?
 

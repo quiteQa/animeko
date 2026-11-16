@@ -115,8 +115,24 @@ final class PlayerModel {
         catch { toastMessage = "性能报告导出失败" }
     }
     var showsAirPlay = false
+    @ObservationIgnored private var preparingAirPlay = false
+    @ObservationIgnored private var airPlayResumePlaying = true
+    func prepareAirPlay(compatible1080: Bool) async {
+        guard let url = playbackURL, !preparingAirPlay else { return }
+        preparingAirPlay = true; airPlayResumePlaying = isPlaying; player.pause()
+        await airPlay.prepare(url: url, headers: playable?.headers ?? [:], start: currentTime, compatible1080: compatible1080)
+        if case .failed = airPlay.state { cancelPreparedAirPlay() }
+    }
+    func cancelPreparedAirPlay() {
+        guard preparingAirPlay, !airPlay.isConnected else { return }
+        preparingAirPlay = false
+        if airPlay.state == .ready || airPlay.state == .preparing { airPlay.stop() }
+        if airPlayResumePlaying && !isStopped { player.play() }
+    }
 
     func attach(to services: AppServices) {
+        if services.backgroundPlayback !== self { services.backgroundPlayback?.stop() }
+        services.backgroundCachePlayback?.stop()
         self.services = services; pageVisible = true
         player.onRestorePictureInPicture = { [weak self] in
             guard let self, let services = self.services else { return false }
@@ -140,11 +156,12 @@ final class PlayerModel {
         airPlay.onConnection = { [weak self] connected, position in
             guard let self else { return }
             if connected {
+                preparingAirPlay = false
                 player.stopPictureInPicture(); self.services?.backgroundPlayback = self
                 player.pause(); player.setVideoEnabled(false)
             } else {
                 player.setVideoEnabled(true); player.seek(to: position)
-                if pageVisible { player.play() }
+                if pageVisible && airPlayResumePlaying { player.play() }
                 self.services?.backgroundPlayback = nil
                 if !pageVisible { stop() }
             }

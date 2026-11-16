@@ -27,7 +27,7 @@ struct Torrent;
 struct Engine {
     lt::session session;
     std::mutex mutex;
-    std::vector<std::weak_ptr<Torrent>> torrents;
+    std::vector<std::shared_ptr<Torrent>> torrents;
     std::atomic<bool> stopping{false};
     std::thread alerts;
     Engine();
@@ -35,7 +35,7 @@ struct Engine {
     void poll();
 };
 struct Torrent {
-    std::shared_ptr<Engine> engine;
+    std::weak_ptr<Engine> engine;
     lt::torrent_handle handle;
     std::string directory;
     std::mutex mutex;
@@ -74,8 +74,8 @@ void Engine::poll() {
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 for (auto iterator = torrents.begin(); iterator != torrents.end();) {
-                    auto item = iterator->lock();
-                    if (!item) { iterator = torrents.erase(iterator); continue; }
+                    auto item = *iterator;
+                    if (item->removed) { iterator = torrents.erase(iterator); continue; }
                     if (item->handle == handle) torrent = item;
                     ++iterator;
                 }
@@ -112,7 +112,7 @@ void message(char *buffer, size_t capacity, const char *text) {
 }
 }
 struct ANITEngine { std::shared_ptr<Engine> value; };
-struct ANITTorrent { std::shared_ptr<Torrent> value; };
+struct ANITTorrent { std::shared_ptr<Torrent> value; std::shared_ptr<Engine> engine; };
 struct ANITReadToken { std::atomic<bool> cancelled{false}; };
 
 extern "C" ANITEngine *ANITCreateEngine(char *error, size_t capacity) {
@@ -127,13 +127,12 @@ static ANITTorrent *add(ANITEngine *engine, lt::add_torrent_params params, const
     if (!engine || !directory) return nullptr;
     {
         std::lock_guard<std::mutex> lock(engine->value->mutex);
-        for (const auto &weak : engine->value->torrents) {
-            const auto existing = weak.lock();
+        for (const auto &existing : engine->value->torrents) {
             if (!existing || existing->removed) continue;
             const auto hashes = existing->handle.info_hashes();
             if ((hashes.has_v1() && params.info_hashes.has_v1() && hashes.v1 == params.info_hashes.v1)
                 || (hashes.has_v2() && params.info_hashes.has_v2() && hashes.v2 == params.info_hashes.v2))
-                return new ANITTorrent{existing};
+                return new ANITTorrent{existing, engine->value};
         }
     }
     const auto hashes = params.info_hashes;
@@ -163,7 +162,7 @@ static ANITTorrent *add(ANITEngine *engine, lt::add_torrent_params params, const
         std::lock_guard<std::mutex> lock(engine->value->mutex);
         engine->value->torrents.push_back(result);
     }
-    return new ANITTorrent{result};
+    return new ANITTorrent{result, engine->value};
 }
 extern "C" ANITTorrent *ANITAddMagnet(ANITEngine *engine, const char *uri, const char *directory, char *error, size_t capacity) {
     try { if (!uri) return nullptr; return add(engine, lt::parse_magnet_uri(uri), directory); }
@@ -179,6 +178,14 @@ extern "C" ANITTorrent *ANITAddTorrent(ANITEngine *engine, const uint8_t *data, 
     } catch (const std::exception &) { message(error, capacity, "Invalid torrent metadata"); return nullptr; }
 }
 extern "C" void ANITCloseTorrent(ANITTorrent *torrent) { delete torrent; }
+extern "C" int32_t ANITCopyMagnetURI(ANITTorrent *torrent, char *buffer, size_t capacity) {
+    try {
+        if (!torrent || torrent->value->removed || !buffer) return 0;
+        const auto uri = lt::make_magnet_uri(torrent->value->handle);
+        if (uri.empty() || uri.size() + 1 > capacity) return 0;
+        message(buffer, capacity, uri.c_str()); return 1;
+    } catch (...) { return 0; }
+}
 extern "C" int32_t ANITFileCount(ANITTorrent *torrent) {
     try {
         if (!torrent || torrent->value->removed) return -1;
@@ -245,7 +252,7 @@ extern "C" void ANITRemove(ANITTorrent *torrent, int32_t delete_files) {
     std::filesystem::remove(value->directory + "/.resume", ignored);
     std::filesystem::remove(value->directory + "/.resume.tmp", ignored);
     value->condition.notify_all();
-    try { value->engine->session.remove_torrent(value->handle, delete_files ? lt::session::delete_files : lt::remove_flags_t{}); } catch (...) {}
+    try { torrent->engine->session.remove_torrent(value->handle, delete_files ? lt::session::delete_files : lt::remove_flags_t{}); } catch (...) {}
 }
 extern "C" ANITReadToken *ANITCreateReadToken() { return new ANITReadToken; }
 extern "C" void ANITCancelRead(ANITReadToken *token) { if (token) token->cancelled = true; }
