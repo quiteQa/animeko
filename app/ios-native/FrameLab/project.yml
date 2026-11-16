@@ -1,0 +1,59 @@
+name: NativeFrameLab
+options:
+  bundleIdPrefix: me.him188.ani.native.lab
+  deploymentTarget:
+    iOS: '26.0'
+packages:
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit
+    exactVersion: 1.1.0-n9.0.2
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ''
+targets:
+  NativeFrameLab:
+    type: application
+    platform: iOS
+    settings:
+      base:
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/ProbeSurfaceTexture.h
+        OTHER_CFLAGS: ['$(inherited)', '-Werror=objc-method-access']
+    sources:
+      - path: Sources
+      - path: Samples
+        buildPhase: resources
+      - path: ../App/Sources/Features/Player/Support/FrameProbePolicy.swift
+    info:
+      path: .build/Info.plist
+      properties:
+        CFBundleDisplayName: Animeko Frame Lab
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+    dependencies:
+      - package: MPVKit
+        product: MPVKit
+  NativeFrameLabTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+        excludes: [Fixtures]
+      - path: Tests/Fixtures
+        buildPhase: resources
+    dependencies:
+      - target: NativeFrameLab
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/NativeFrameLab.app/NativeFrameLab
+        BUNDLE_LOADER: $(TEST_HOST)
+schemes:
+  NativeFrameLab:
+    build:
+      targets:
+        NativeFrameLab: all
+        NativeFrameLabTests: [test]
+    test:
+      targets: [NativeFrameLabTests]

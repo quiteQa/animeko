@@ -134,6 +134,7 @@ includeProject(":app:shared:reorderable", "app/shared/thirdparty/reorderable")
 includeProject(":app:desktop", "app/desktop") // desktop JVM client for macOS, Windows, and Linux
 includeProject(":app:android", "app/android") // Android client
 includeProject(":app:ios", "app/ios") // iOS Launcher
+includeProject(":app:ios-native:core", "app/ios-native/core") // SwiftUI 原生客户端的 Kotlin facade (AniCore.xcframework)
 
 includeProject(":client")
 

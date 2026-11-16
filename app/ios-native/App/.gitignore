@@ -1,0 +1,8 @@
+# xcodegen / CocoaPods 生成物
+Generated/
+*.xcodeproj
+*.xcworkspace
+Pods/
+Podfile.lock
+.build/
+.swiftpm/
