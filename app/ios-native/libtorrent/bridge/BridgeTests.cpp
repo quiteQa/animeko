@@ -105,7 +105,14 @@ int main(int argc, char **argv) {
     count = ANITRead(torrent, 0, 299900, bytes, sizeof bytes, 10000, nullptr);
     assert(count == 100);
     for (int i = 0; i < count; ++i) assert(bytes[i] == uint8_t(expected[299900 + i]));
-    ANITRemove(torrent, 0);
+    std::filesystem::path cachedFile;
+    for (const auto &item : std::filesystem::recursive_directory_iterator(root / "download"))
+        if (item.path().filename() == "episode-01.mkv") cachedFile = item.path();
+    assert(!cachedFile.empty());
+    ANITRemove(torrent, 1);
+    for (int i = 0; i < 100 && std::filesystem::exists(cachedFile); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    assert(!std::filesystem::exists(cachedFile));
     ANITCloseTorrent(torrent);
     ANITDestroyEngine(engine);
     std::puts("PASS: verified piece reads, tail seek, EOF, cancellation, resume persistence");

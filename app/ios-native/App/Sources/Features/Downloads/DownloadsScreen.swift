@@ -43,7 +43,7 @@ struct DownloadsScreen: View {
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .contentShape(.rect)
-                        .onTapGesture { services.cachedPlayback = CachedTorrentPlayback(entry: entry) }
+                        .onTapGesture { if !entry.deleted { services.cachedPlayback = CachedTorrentPlayback(entry: entry) } }
                         .swipeActions {
                             Button("删除", systemImage: "trash", role: .destructive) { torrents.delete(entry) }
                             Button(entry.paused ? "继续" : "暂停", systemImage: entry.paused ? "play" : "pause") { torrents.setPaused(entry, !entry.paused) }
@@ -98,7 +98,7 @@ struct DownloadsScreen: View {
     }
 
     private var nativeEntries: [NativeTorrentManager.Entry] {
-        torrents.entries.filter { $0.record.downloadMarked || $0.record.keepDownloading || $0.progress > 0 }.filter { subjectId == 0 || $0.record.subjectID == subjectId }
+        torrents.entries.filter { $0.record.downloadMarked || $0.record.keepDownloading || $0.record.fileIndex != nil || $0.progress > 0 }.filter { subjectId == 0 || $0.record.subjectID == subjectId }
     }
 
     @ViewBuilder

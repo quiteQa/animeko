@@ -162,7 +162,7 @@ final class NativeTorrentManager {
         @ObservationIgnored var readers = 0
         @ObservationIgnored var waiters = 0
         @ObservationIgnored var deleted = false
-        init(_ record: Record) { self.record = record; id = record.id; paused = record.paused }
+        init(_ record: Record) { self.record = record; id = record.id; paused = record.paused || !record.keepDownloading }
     }
     static let shared = NativeTorrentManager()
     private(set) var entries: [Entry] = []
@@ -240,7 +240,7 @@ final class NativeTorrentManager {
               selectFile: @escaping @MainActor ([String]) async throws -> Int) async throws -> TorrentPlaybackLease {
         if !restoring { await restore() }
         let entry = record(uri: uri, title: title, subject: subject, episode: episode)
-        entry.error = nil
+        entry.error = nil; entry.paused = false
         entry.waiters += 1
         defer {
             entry.waiters -= 1
@@ -295,9 +295,22 @@ final class NativeTorrentManager {
         if !paused { Task { do { _ = try await prepare(entry, headers: [:]) } catch { entry.error = "BT 任务恢复失败" } } }
     }
     func delete(_ entry: Entry) {
-        entry.deleted = true
-        entry.opening?.cancel(); entry.torrent?.remove()
-        entries.removeAll { $0.id == entry.id }; persist()
+        guard !entry.deleted else { return }
+        entry.deleted = true; entry.opening?.cancel()
+        Task {
+            do {
+                if let torrent = entry.torrent { torrent.remove() }
+                else if entry.record.fileIndex != nil {
+                    let engine = try await getEngine()
+                    let torrent = try await engine.add(entry.record.cachedMagnet ?? entry.record.uri, headers: [:],
+                        directory: root.appendingPathComponent("Content", isDirectory: true))
+                    torrent.remove()
+                }
+                entries.removeAll { $0.id == entry.id }; persist()
+            } catch {
+                entry.deleted = false; entry.error = "缓存删除失败，请重试"
+            }
+        }
     }
     private func persist() {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

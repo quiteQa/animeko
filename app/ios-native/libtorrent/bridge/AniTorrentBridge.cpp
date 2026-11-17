@@ -262,6 +262,13 @@ extern "C" void ANITRemove(ANITTorrent *torrent, int32_t delete_files) {
     auto value = torrent->value;
     if (value->removed.exchange(true)) return;
     std::lock_guard<std::mutex> lock(value->mutex);
+    value->cacheEnabled = false;
+    value->pieces.clear(); value->requested.clear(); value->cachedBytes = 0;
+    {
+        std::lock_guard<std::mutex> registry(torrent->engine->mutex);
+        auto &items = torrent->engine->torrents;
+        items.erase(std::remove(items.begin(), items.end(), value), items.end());
+    }
     std::error_code ignored;
     std::filesystem::remove(value->directory + "/.resume", ignored);
     std::filesystem::remove(value->directory + "/.resume.tmp", ignored);
