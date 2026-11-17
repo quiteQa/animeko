@@ -94,7 +94,8 @@ final class PlayerModel {
     @ObservationIgnored private(set) var playbackURL: String?
     @ObservationIgnored private weak var services: AppServices?
     var pageVisible = false
-    var canStartPictureInPicture: Bool { phase == .playing && player.canStartPictureInPicture && !airPlay.isConnected }
+    private(set) var pictureInPictureAvailable = false
+    var canStartPictureInPicture: Bool { phase == .playing && pictureInPictureAvailable && !airPlay.isConnected }
     private(set) var pictureInPictureActive = false
     @ObservationIgnored private var resumePiPAfterLoad = false
     let airPlay = AirPlaySession()
@@ -754,6 +755,8 @@ final class PlayerModel {
     }
 
     private func onPlayerChanged() {
+        let available = player.canStartPictureInPicture
+        if pictureInPictureAvailable != available { pictureInPictureAvailable = available }
         guard !airPlay.isConnected else { return }
         if resumePiPAfterLoad, phase == .playing, player.inspectionComplete {
             resumePiPAfterLoad = false

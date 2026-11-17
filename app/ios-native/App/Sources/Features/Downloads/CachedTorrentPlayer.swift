@@ -11,6 +11,7 @@ final class CachedTorrentPlayback: Identifiable {
     private(set) var duration: Double = 0
     private(set) var paused = true
     private(set) var ready = false
+    private(set) var pictureInPictureAvailable = false
     var error: String?
     private var lease: TorrentPlaybackLease?
     private var loading: Task<Void, Never>?
@@ -39,6 +40,8 @@ final class CachedTorrentPlayback: Identifiable {
             if duration != player.duration { duration = player.duration }
             if paused != player.isPaused { paused = player.isPaused }
             if ready != player.hasMedia { ready = player.hasMedia }
+            let available = player.canStartPictureInPicture
+            if pictureInPictureAvailable != available { pictureInPictureAvailable = available }
             if abs(position - lastSaved) >= 5 { saveProgress() }
         }
         player.onLoadFailed = { [weak self] in self?.error = $0 }
@@ -117,7 +120,7 @@ struct CachedTorrentPlayer: View {
                 Button { model.player.seek(to: max(0, model.position - 15)) } label: { Image(systemName: "gobackward.15") }
                 Button { model.paused ? model.player.play() : model.player.pause() } label: { Image(systemName: model.paused ? "play.fill" : "pause.fill") }
                 Button { model.player.seek(to: min(model.duration, model.position + 15)) } label: { Image(systemName: "goforward.15") }
-                if model.player.canStartPictureInPicture { Button { model.player.startPictureInPicture() } label: { Image(systemName: "pip.enter") } }
+                if model.pictureInPictureAvailable { Button { model.player.startPictureInPicture() } label: { Image(systemName: "pip.enter") } }
             }.font(.title2)
             Spacer()
         }
