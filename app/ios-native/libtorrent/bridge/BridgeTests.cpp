@@ -97,9 +97,14 @@ int main(int argc, char **argv) {
     ANITCloseTorrent(torrent);
     ANITDestroyEngine(engine);
     // A saved metadata dictionary and verified pieces are readable without the seed.
+    const std::string fullMagnet(magnet);
+    const auto hashStart = fullMagnet.find("urn:btih:");
+    assert(hashStart != std::string::npos);
+    const auto hashEnd = fullMagnet.find('&', hashStart);
+    const auto originalMagnet = std::string("magnet:?xt=") + fullMagnet.substr(hashStart, hashEnd - hashStart);
     seedSession.remove_torrent(seed);
     engine = ANITCreateEngine(error, sizeof error); assert(engine);
-    torrent = ANITAddMagnet(engine, magnet, (root / "download").string().c_str(), error, sizeof error);
+    torrent = ANITAddMagnet(engine, originalMagnet.c_str(), (root / "download").string().c_str(), error, sizeof error);
     assert(torrent && ANITFileCount(torrent) == 1);
     assert(ANITSelectFile(torrent, 0) == 1);
     count = ANITRead(torrent, 0, 299900, bytes, sizeof bytes, 10000, nullptr);

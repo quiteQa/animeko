@@ -159,7 +159,11 @@ static ANITTorrent *add(ANITEngine *engine, lt::add_torrent_params params, const
         std::vector<char> bytes((std::istreambuf_iterator<char>(file)), {});
         lt::error_code error;
         auto saved = lt::read_resume_data(bytes, error);
-        if (!error && saved.info_hashes == params.info_hashes) params = std::move(saved);
+        const auto requested = params.info_hashes;
+        const auto found = saved.info_hashes;
+        const bool matches = (!requested.has_v1() || (found.has_v1() && found.v1 == requested.v1))
+            && (!requested.has_v2() || (found.has_v2() && found.v2 == requested.v2));
+        if (!error && matches) params = std::move(saved);
     }
     params.save_path = saveDirectory;
     params.flags &= ~lt::torrent_flags::auto_managed;

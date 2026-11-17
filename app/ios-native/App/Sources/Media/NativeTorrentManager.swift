@@ -146,6 +146,7 @@ final class NativeTorrentManager {
         var keepDownloading = false
         var downloadMarked = false
         var paused = false
+        var localURI: String { uri.lowercased().hasPrefix("magnet:") ? uri : cachedMagnet ?? uri }
     }
     @MainActor @Observable
     final class Entry: Identifiable {
@@ -215,7 +216,7 @@ final class NativeTorrentManager {
         if let opening = entry.opening { return try await opening.value }
         let task = Task {
             let engine = try await getEngine()
-            let torrent = try await engine.add(entry.record.cachedMagnet ?? entry.record.uri, headers: headers,
+            let torrent = try await engine.add(entry.record.localURI, headers: headers,
                 directory: root.appendingPathComponent("Content", isDirectory: true))
             do { _ = try await torrent.files(); try Task.checkCancellation() }
             catch { torrent.pause(true); torrent.save(); throw error }
@@ -302,7 +303,7 @@ final class NativeTorrentManager {
                 if let torrent = entry.torrent { torrent.remove() }
                 else if entry.record.fileIndex != nil {
                     let engine = try await getEngine()
-                    let torrent = try await engine.add(entry.record.cachedMagnet ?? entry.record.uri, headers: [:],
+                    let torrent = try await engine.add(entry.record.localURI, headers: [:],
                         directory: root.appendingPathComponent("Content", isDirectory: true))
                     torrent.remove()
                 }
