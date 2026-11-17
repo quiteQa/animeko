@@ -2,6 +2,17 @@
 
 本轮实现范围为在线源、Jellyfin、BT 边下边播与缓存、mpv SDR 画中画、手机端 AirPlay 视频供流及性能采样。4K HDR / Dolby Vision 全保真属于独立后续目标。
 
+## 最近的自动验证记录
+
+2026-11-17, 代码提交 `1844b325826c7502ea00f67c42826a572c93453b`:
+
+- [媒体 SDK 与集成测试](https://github.com/quiteQa/animeko/actions/runs/44026759915): Xcode 26 的生产 Swift/Objective-C 检查及 6 项模拟器测试通过, 覆盖 mpv 实际像素/缓冲池、HTTP Range/撤销、HLS 视频、带音频的 seek/转换、HDR 拒绝、VOD 暂停/倍速时钟。
+- [原生 BT](https://github.com/quiteQa/animeko/actions/runs/44026759905): iOS 交叉编译与模拟器 P2P 回归通过, 包括分片/尾部读取、EOF、取消、并发缓存回收、暂停读取、重复打开、原始磁力的离线恢复和实际缓存文件删除。
+- [纯 Swift 回归](https://github.com/quiteQa/animeko/actions/runs/44026759921): 24 项策略与生命周期回归通过。
+- [完整 IPA 构建](https://github.com/quiteQa/animeko/actions/runs/44026759917): Kotlin facade 回归、原生依赖构建、App 归档和 FFmpeg 链接检查通过; [未签名 IPA](https://github.com/quiteQa/animeko/actions/runs/44026759917/artifacts/14306717781)已打包上传, 安装前需签名。
+
+上述结果不替代目标 iPhone 与 AirPlay 接收器的实测。
+
 ## 实现与验证边界
 
 | 能力 | 生产实现 | 验证边界 |

@@ -35,7 +35,7 @@ SwiftUI 视图 ── @Observable 模型 ── mpv (MPVKit) / 弹幕 CALayer  (
                     │
    AniClient / AniEpisodeSession (Kotlin facade, 新写, 薄)
                     │
- app-data · datasource · danmaku · application 的 Koin 装配        (上游, 不改)
+ app-data · datasource · danmaku · application 的 Koin 装配        (上游复用)
 ```
 
 - Swift 只调用 `AniClient` 与 `AniEpisodeSession`. 它们只暴露 `Ani*` 值类型 (String / Int / Long / List / Map),
