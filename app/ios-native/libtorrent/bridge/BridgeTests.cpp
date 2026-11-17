@@ -5,6 +5,7 @@
 #include <libtorrent/session.hpp>
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/torrent_info.hpp>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <filesystem>
@@ -54,6 +55,13 @@ int main(int argc, char **argv) {
     char path[4096]{}; int64_t size = 0;
     assert(ANITFileInfo(torrent, 0, path, sizeof path, &size) == 1 && size == 300000);
     assert(ANITSelectFile(torrent, 0) == 1);
+    std::atomic<bool> trimCache{true};
+    std::thread trimmer([&] {
+        while (trimCache) {
+            ANITTrimReadCache(torrent);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
     uint8_t bytes[4096]{};
     auto *token = ANITCreateReadToken();
     int count = ANITRead(torrent, 0, 16370, bytes, sizeof bytes, 10000, token);
@@ -66,7 +74,11 @@ int main(int argc, char **argv) {
     ANITCancelRead(token);
     assert(ANITRead(torrent, 0, 0, bytes, sizeof bytes, 100, token) == -2);
     ANITDestroyReadToken(token);
+    trimCache = false; trimmer.join();
     ANITSetPaused(torrent, 1);
+    assert(ANITGetStatus(torrent).paused != 0);
+    assert(ANITRead(torrent, 0, 299900, bytes, sizeof bytes, 10000, nullptr) == 100);
+    assert(ANITGetStatus(torrent).paused != 0);
     ANITSaveResume(torrent);
     bool saved = false;
     for (int i = 0; i < 100 && !saved; ++i) {

@@ -46,6 +46,16 @@ struct Torrent {
     std::atomic<bool> removed{false};
     std::atomic<bool> configured{false};
     std::atomic<bool> cacheEnabled{false};
+    std::atomic<int> activeReads{0};
+};
+struct ReadGuard {
+    std::shared_ptr<Torrent> torrent;
+    explicit ReadGuard(std::shared_ptr<Torrent> value) : torrent(std::move(value)) {
+        std::lock_guard<std::mutex> lock(torrent->mutex);
+        ++torrent->activeReads;
+        torrent->cacheEnabled = true;
+    }
+    ~ReadGuard() { --torrent->activeReads; }
 };
 lt::settings_pack settings() {
     lt::settings_pack pack;
@@ -243,6 +253,7 @@ extern "C" void ANITTrimReadCache(ANITTorrent *torrent) {
     if (!torrent) return;
     auto value = torrent->value;
     std::lock_guard<std::mutex> lock(value->mutex);
+    if (value->activeReads != 0) return;
     value->cacheEnabled = false;
     value->pieces.clear(); value->cachedBytes = 0;
 }
@@ -264,8 +275,9 @@ extern "C" int32_t ANITRead(ANITTorrent *torrent, int32_t index, int64_t offset,
                               int32_t capacity, int32_t timeout_milliseconds, ANITReadToken *token) {
     try {
         if (!torrent || !destination || capacity <= 0 || offset < 0) return -1;
+        if (token && token->cancelled) return -2;
         auto value = torrent->value;
-        value->cacheEnabled = true;
+        ReadGuard read(value);
         auto info = value->handle.torrent_file();
         if (!info || index < 0 || index >= info->num_files()) return -1;
         const auto size = info->files().file_size(lt::file_index_t(index));
@@ -273,7 +285,6 @@ extern "C" int32_t ANITRead(ANITTorrent *torrent, int32_t index, int64_t offset,
         const int64_t absolute = info->files().file_offset(lt::file_index_t(index)) + offset;
         const int piece = int(absolute / info->piece_length());
         const int in_piece = int(absolute % info->piece_length());
-        value->handle.resume();
         for (int ahead = 0; ahead < 4 && piece + ahead < info->num_pieces(); ++ahead)
             value->handle.set_piece_deadline(lt::piece_index_t(piece + ahead), ahead * 100);
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(1, timeout_milliseconds));
