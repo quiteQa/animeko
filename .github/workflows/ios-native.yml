@@ -65,6 +65,16 @@ jobs:
         echo "JAVA_HOME=$jbrHome" >> "$GITHUB_ENV"
         echo "$jbrHome/bin" >> "$GITHUB_PATH"
 
+    - uses: gradle/actions/setup-gradle@v4
+      with:
+        cache-read-only: false
+
+    - uses: actions/cache@v4
+      with:
+        path: ~/.konan
+        key: ios-konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+        restore-keys: ios-konan-${{ runner.os }}-${{ runner.arch }}-
+
     - name: 'Show toolchain'
       run: |
         xcodebuild -version

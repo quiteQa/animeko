@@ -46,6 +46,7 @@ targets:
     # 只随 App 嵌入, 不链接到 App 本身: App 静态链接 MPVKit 自带的 FFmpeg, 若同时链接 MediampFFmpegKit,
     # 链接器会把 mpv 的部分 FFmpeg 符号解析到 MediampFFmpegKit, mpv 检测到版本不一致后在 mpv_initialize 中退出.
     dependencies:
+      - sdk: SystemConfiguration.framework
       - framework: ../libtorrent/build/LibTorrent.xcframework
         embed: false
         link: true

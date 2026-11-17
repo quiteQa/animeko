@@ -66,7 +66,7 @@ final class MediaRuntimeTests: XCTestCase {
     func testNativeProbeAndHLSConversionProducePlayableSDRSegments() async throws {
         let url = try fixture("sdr-pattern").absoluteString
         let info = try await MediaInspection.inspect(url: url, headers: [:])
-        XCTAssertFalse(info.isHDR); XCTAssertEqual(info.width, 640)
+        XCTAssertFalse(info.isHDR); XCTAssertEqual(info.width, 160); XCTAssertEqual(info.height, 90)
         let writer = try AirPlayHLSWriter(url: url, headers: [:], info: info, start: 0, compatible1080: false)
         defer { writer.cancel(); writer.cleanup() }
         await writer.run()
