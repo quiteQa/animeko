@@ -463,15 +463,6 @@ private struct InlinePlayer: View {
     }
 }
 
-enum TimeText {
-    static func format(_ seconds: TimeInterval) -> String {
-        guard seconds.isFinite, seconds > 0 else { return "0:00" }
-        let total = Int(seconds)
-        let (h, m, s) = (total / 3600, total % 3600 / 60, total % 60)
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
-    }
-}
-
 // MARK: - 标题
 
 /// 番剧名 (点按进入条目详情), 当前剧集, 收藏按钮, 以及评分 / 开播时间 / 集数标签.

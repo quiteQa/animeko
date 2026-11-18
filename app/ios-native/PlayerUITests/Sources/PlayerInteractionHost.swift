@@ -14,6 +14,8 @@ private struct InteractionHarness: View {
     @State private var paused = false
     @State private var showsSources = false
     @State private var progress = 0.25
+    @State private var showsEpisodes = false
+    @State private var episode = 1
     @State private var lastIndicator = "none"
 
     var body: some View {
@@ -29,28 +31,43 @@ private struct InteractionHarness: View {
                 Spacer()
             }
         } fullscreen: {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                PlayerGestureSurface(controls: controls, isEnabled: !presentation.isLocked,
-                                     topInset: 80, bottomInset: 80, onTap: {}, onInteraction: {})
-                VStack {
-                    HStack {
-                        Button("竖屏", action: exit).accessibilityIdentifier("exit-fullscreen")
+            PlayerCinemaLayout(showsPanel: showsEpisodes) { _, _ in
+                ZStack {
+                    Color.black
+                    PlayerGestureSurface(controls: controls, isEnabled: !presentation.isLocked && !showsEpisodes,
+                                         topInset: 80, bottomInset: 80, onTap: {}, onInteraction: {})
+                    VStack {
+                        HStack {
+                            Button("竖屏", action: exit).accessibilityIdentifier("exit-fullscreen")
+                            Spacer()
+                            Button("选集") { showsEpisodes.toggle() }.accessibilityIdentifier("episodes")
+                            Button(presentation.isLocked ? "解锁" : "锁定") { presentation.isLocked.toggle() }
+                                .accessibilityIdentifier("lock")
+                        }
                         Spacer()
-                        Button(presentation.isLocked ? "解锁" : "锁定") { presentation.isLocked.toggle() }
-                            .accessibilityIdentifier("lock")
+                        Text(indicatorText).accessibilityIdentifier("indicator")
+                        Text("第 \(episode) 话").accessibilityIdentifier("current-episode")
+                        Slider(value: $progress).accessibilityIdentifier("progress")
+                        playbackButton
                     }
-                    Spacer()
-                    Text(indicatorText).accessibilityIdentifier("indicator")
-                    Slider(value: $progress).accessibilityIdentifier("progress")
-                    playbackButton
+                    .padding(24)
+                    PlayerAdjustmentHUD(controls: controls, usesSidePlacement: true)
                 }
-                .padding(24)
-                PlayerAdjustmentHUD(controls: controls)
+                .foregroundStyle(.white)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("fullscreen")
+            } panel: {
+                VStack {
+                    Button("关闭选集") { showsEpisodes = false }.accessibilityIdentifier("dismiss-episodes")
+                    Button("第 2 话") {
+                        episode = 2
+                        showsEpisodes = false
+                    }
+                    .accessibilityIdentifier("episode-2")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(.white)
             }
-            .foregroundStyle(.white)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("fullscreen")
         }
         .background { PlayerSystemVolumeBridge(controls: controls).frame(width: 1, height: 1) }
         .onAppear { UIDevice.current.beginGeneratingDeviceOrientationNotifications() }

@@ -59,6 +59,10 @@ final class PlayerSystemControls: ObservableObject {
     func restoreBrightness() {
         if let originalBrightness { originalBrightness.screen.brightness = originalBrightness.value }
         originalBrightness = nil
+        dismissIndicator()
+    }
+
+    func dismissIndicator() {
         hideTask?.cancel()
         indicator = nil
     }
@@ -150,25 +154,73 @@ struct PlayerGestureSurface: View {
 
 struct PlayerAdjustmentHUD: View {
     @ObservedObject var controls: PlayerSystemControls
+    var usesSidePlacement = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        if let indicator = controls.indicator {
-            HStack(spacing: 10) {
-                Image(systemName: indicator.target == .brightness ? "sun.max.fill" : "speaker.wave.2.fill")
-                if indicator.unavailable {
-                    Text("当前输出不支持调节").font(.footnote)
+        Group {
+            if let indicator = controls.indicator {
+                let label = indicator.target == .brightness ? "亮度" : "音量"
+                let symbol = indicator.target == .brightness ? "sun.max.fill" : "speaker.wave.2.fill"
+                if usesSidePlacement {
+                    sideIndicator(indicator, symbol: symbol)
                 } else {
-                    Text(indicator.target == .brightness ? "亮度" : "音量")
-                    ProgressView(value: indicator.value).frame(width: 72).tint(.white)
-                    Text("\(Int((indicator.value * 100).rounded()))%")
-                        .monospacedDigit().frame(minWidth: 36, alignment: .trailing)
+                    inlineIndicator(indicator, label: label, symbol: symbol)
                 }
             }
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(.black.opacity(0.75), in: .capsule)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
         }
+        .foregroundStyle(.white)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: controls.indicator != nil)
+    }
+
+    private func sideIndicator(_ indicator: PlayerSystemControls.Indicator, symbol: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: symbol).font(.subheadline.weight(.semibold))
+            if indicator.unavailable {
+                Text("音量不可调")
+                    .font(.caption2.weight(.medium))
+            } else {
+                Capsule().fill(.white.opacity(0.22))
+                    .frame(width: 4, height: 48)
+                    .overlay(alignment: .bottom) {
+                        Capsule().fill(.white)
+                            .frame(width: 4, height: 48 * indicator.value)
+                    }
+                Text(percent(indicator.value))
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+            }
+        }
+        .padding(.vertical, 10)
+        .frame(minWidth: 48)
+        .padding(.horizontal, indicator.unavailable ? 8 : 0)
+        .background(.black.opacity(0.73), in: .rect(cornerRadius: 15))
+        .overlay { RoundedRectangle(cornerRadius: 15).strokeBorder(.white.opacity(0.15)) }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: indicator.target == .brightness ? .leading : .trailing)
+        .transition(.opacity)
+    }
+
+    private func inlineIndicator(_ indicator: PlayerSystemControls.Indicator, label: String, symbol: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: symbol)
+            if indicator.unavailable {
+                Text("当前输出不支持调节").font(.footnote)
+            } else {
+                Text(label)
+                ProgressView(value: indicator.value).frame(width: 72).tint(.white)
+                Text(percent(indicator.value))
+                    .monospacedDigit().frame(minWidth: 36, alignment: .trailing)
+            }
+        }
+        .font(.subheadline.weight(.medium))
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(.black.opacity(0.75), in: .capsule)
+    }
+
+    private func percent(_ value: Double) -> String {
+        "\(Int((value * 100).rounded()))%"
     }
 }

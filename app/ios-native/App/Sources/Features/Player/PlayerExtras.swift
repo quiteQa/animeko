@@ -73,21 +73,12 @@ struct PlayerMoreMenu<Label: View>: View {
 
             if !model.audioTracks.isEmpty {
                 Menu("音轨", systemImage: "waveform") {
-                    ForEach(model.audioTracks) { track in
-                        Button { model.selectTrack("audio", id: track.id) } label: {
-                            if track.selected { SwiftUI.Label(track.title, systemImage: "checkmark") } else { Text(track.title) }
-                        }
-                    }
+                    PlayerTrackMenuContent(model: model, kind: "audio")
                 }.disabled(model.airPlay.isConnected)
             }
             if !model.subtitleTracks.isEmpty {
                 Menu("字幕", systemImage: "captions.bubble") {
-                    Button("关闭字幕") { model.selectTrack("sub", id: nil) }
-                    ForEach(model.subtitleTracks) { track in
-                        Button { model.selectTrack("sub", id: track.id) } label: {
-                            if track.selected { SwiftUI.Label(track.title, systemImage: "checkmark") } else { Text(track.title) }
-                        }
-                    }
+                    PlayerTrackMenuContent(model: model, kind: "sub")
                 }.disabled(model.airPlay.isConnected)
             }
             Button("AirPlay 视频投送", systemImage: "airplay.video") { model.showsAirPlay = true }
@@ -101,6 +92,23 @@ struct PlayerMoreMenu<Label: View>: View {
             label
         }
         .accessibilityLabel("更多选项")
+    }
+}
+
+struct PlayerTrackMenuContent: View {
+    let model: PlayerModel
+    let kind: String
+
+    var body: some View {
+        if kind == "sub" {
+            Button("关闭字幕") { model.selectTrack(kind, id: nil) }
+        }
+        ForEach(kind == "sub" ? model.subtitleTracks : model.audioTracks) { track in
+            Button { model.selectTrack(kind, id: track.id) } label: {
+                if track.selected { Label(track.title, systemImage: "checkmark") }
+                else { Text(track.title) }
+            }
+        }
     }
 }
 

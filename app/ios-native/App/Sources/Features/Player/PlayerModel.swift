@@ -81,6 +81,7 @@ final class PlayerModel {
 
     /// 即将自动跳过的 OP/ED; 用户可以取消.
     private(set) var pendingSkip: AniSkipSegment?
+    private(set) var skipSegments: [AniSkipSegment] = []
     /// 下一集 (已播出); 没有时为 `nil`.
     private(set) var nextEpisode: AniEpisode?
     private(set) var previousEpisode: AniEpisode?
@@ -594,6 +595,7 @@ final class PlayerModel {
 
     private func resetSkipState() {
         skipTracker = nil
+        skipSegments = []
         skipSegmentsRequested = false
         pendingSkip = nil
     }
@@ -661,14 +663,15 @@ final class PlayerModel {
         progressWriter?.submit(snapshot)
     }
 
-    /// 时长已知后为当前媒体加载一次跳过片段 (需要开启自动跳过).
+    /// 时长已知后加载跳过片段，供时间轴标记和自动跳过共用。
     private func loadSkipSegmentsIfNeeded() {
-        guard !skipSegmentsRequested, duration > 0, let session, settings()?.autoSkipOpEd == true else { return }
+        guard !skipSegmentsRequested, duration.isFinite, duration > 0, let session else { return }
         skipSegmentsRequested = true
         let durationMillis = Int64(duration * 1000)
         mediaWork.run { [weak self] token in
             guard let segments = try? await session.skipSegments(videoDurationMillis: durationMillis),
                   !segments.isEmpty, let self, mediaWork.accepts(token), self.session === session else { return }
+            skipSegments = segments
             skipTracker = AniSkipTracker(segments: segments)
         }
     }

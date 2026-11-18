@@ -17,6 +17,8 @@ targets:
       - path: ../App/Sources/Common/Orientation.swift
       - path: ../App/Sources/Features/Player/PlayerViewport.swift
       - path: ../App/Sources/Features/Player/PlayerGestureSurface.swift
+      - path: ../App/Sources/Features/Player/PlayerCinemaLayout.swift
+      - path: ../App/Sources/Features/Player/Support/TimeText.swift
       - path: ../App/Sources/Features/Player/Support/PlayerPresentationState.swift
       - path: ../App/Sources/Features/Player/Support/PlayerVerticalAdjustment.swift
     info:

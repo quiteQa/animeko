@@ -13,7 +13,8 @@ let package = Package(
                       "Player/MPVPlayer.swift", "Player/ManualBrowseModel.swift", "Player/ManualBrowsePage.swift",
                       "Player/PlayerControls.swift", "Player/PlayerExtras.swift", "Player/PlayerModel.swift",
                       "Player/PlayerScreen.swift", "Player/PlayerSurface.swift", "Player/SourcePickerSheet.swift",
-                      "Player/PlayerViewport.swift", "Player/PlayerGestureSurface.swift"],
+                      "Player/PlayerViewport.swift", "Player/PlayerGestureSurface.swift",
+                      "Player/PlayerCinemaLayout.swift", "Player/CinemaEpisodePanel.swift"],
             sources: ["Player/Support", "Danmaku/DanmakuTrackAllocator.swift", "Danmaku/DanmakuRenderKey.swift"]
         ),
         .testTarget(name: "NativePlaybackSupportTests", dependencies: ["NativePlaybackSupport"], path: "Tests"),

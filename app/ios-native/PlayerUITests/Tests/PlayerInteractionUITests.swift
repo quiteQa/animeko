@@ -44,6 +44,31 @@ final class PlayerInteractionUITests: XCTestCase {
     }
 
     @MainActor
+    func testEpisodePanelResizesPlaybackAndPreservesPause() {
+        let app = XCUIApplication()
+        app.launch()
+        app.buttons["enter-fullscreen"].tap()
+        let fullscreen = app.otherElements["fullscreen"]
+        let open = app.buttons["episodes"]
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        let expandedWidth = fullscreen.frame.width
+        XCTAssertGreaterThanOrEqual(expandedWidth, 640)
+
+        fullscreen.buttons["playback"].tap()
+        open.tap()
+        let select = app.buttons["episode-2"]
+        XCTAssertTrue(select.waitForExistence(timeout: 5))
+        XCTAssertLessThan(fullscreen.frame.width, expandedWidth - 200)
+        XCTAssertGreaterThan(select.frame.minX, fullscreen.frame.maxX)
+        XCTAssertEqual(fullscreen.buttons["playback"].label, "播放")
+
+        select.tap()
+        XCTAssertEqual(app.staticTexts["current-episode"].label, "第 2 话")
+        XCTAssertEqual(fullscreen.frame.width, expandedWidth, accuracy: 1)
+        XCTAssertEqual(fullscreen.buttons["playback"].label, "播放")
+    }
+
+    @MainActor
     func testSideGesturesAndLockPreserveButtonAndSliderTouches() {
         let app = XCUIApplication()
         app.launch()
