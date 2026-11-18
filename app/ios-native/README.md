@@ -4,6 +4,8 @@
 
 构建与自动测试入口、首版阻塞项和真机验收见 [VALIDATION.md](VALIDATION.md)。
 
+界面层级、视觉规范与分阶段优化建议见 [UI_REVIEW.md](UI_REVIEW.md)。
+
 本文描述当前实现. 目标与已定决策 (MPV 内核, BT, SKIE 桥接等) 见 [GOALS.md](GOALS.md), 其中列出了与当前实现的差异.
 
 ```
