@@ -45,7 +45,7 @@ struct CinemaTimeline: View {
     let onEditingChanged: (Bool) -> Void
 
     @GestureState private var dragPosition: Double?
-    @ScaledMetric(relativeTo: .caption) private var timeWidth = 52.0
+    @ScaledMetric(relativeTo: .caption) private var timeWidth: CGFloat = 52
     private var canSeek: Bool { duration.isFinite && duration > 0 }
     private var displayedPosition: Double { dragPosition ?? position }
 
@@ -54,7 +54,7 @@ struct CinemaTimeline: View {
             Text(TimeText.format(displayedPosition))
                 .frame(minWidth: timeWidth, alignment: .leading)
             GeometryReader { geometry in
-                let inset = 7.0
+                let inset: CGFloat = 7
                 let trackWidth = max(1, geometry.size.width - inset * 2)
                 let center = geometry.size.height / 2
                 let progress = fraction(displayedPosition)
@@ -123,12 +123,12 @@ struct CinemaTimeline: View {
         }
     }
 
-    private func fraction(_ seconds: Double) -> Double {
+    private func fraction(_ seconds: Double) -> CGFloat {
         guard canSeek, seconds.isFinite else { return 0 }
-        return min(1, max(0, seconds / duration))
+        return CGFloat(min(1, max(0, seconds / duration)))
     }
 
-    private func seconds(at x: Double, inset: Double, trackWidth: Double) -> Double {
-        duration * min(1, max(0, (x - inset) / trackWidth))
+    private func seconds(at x: CGFloat, inset: CGFloat, trackWidth: CGFloat) -> Double {
+        duration * Double(min(1, max(0, (x - inset) / trackWidth)))
     }
 }
