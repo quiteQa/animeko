@@ -24,6 +24,7 @@ targets:
       - path: ../App/Sources/Features/Player/Support
       - path: ../App/Sources/Features/Player/MPVBackend.swift
       - path: ../App/Sources/Features/Player/MPVPlayer.swift
+      - path: ../App/Sources/Features/Player/PlayerGestureSurface.swift
       - path: ../App/Sources/Common/Diagnostics.swift
     settings:
       base:

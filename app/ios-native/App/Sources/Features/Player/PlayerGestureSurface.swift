@@ -3,6 +3,13 @@ import MediaPlayer
 import SwiftUI
 import UIKit
 
+@MainActor
+protocol PlayerBrightnessScreen: AnyObject {
+    var brightness: CGFloat { get set }
+}
+
+extension UIScreen: PlayerBrightnessScreen {}
+
 /// 亮度作用于当前窗口的屏幕, 离开播放页后恢复; 音量通过系统 MPVolumeView 的公开滑块调节.
 @MainActor
 final class PlayerSystemControls: ObservableObject {
@@ -13,8 +20,8 @@ final class PlayerSystemControls: ObservableObject {
     }
     @Published private(set) var indicator: Indicator?
     weak var volumeSlider: UISlider?
-    weak var screen: UIScreen?
-    private var originalBrightness: CGFloat?
+    weak var screen: (any PlayerBrightnessScreen)?
+    private var originalBrightness: (screen: any PlayerBrightnessScreen, value: CGFloat)?
     private var hideTask: Task<Void, Never>?
 
     var brightness: Double { Double(screen?.brightness ?? 0.5) }
@@ -27,7 +34,7 @@ final class PlayerSystemControls: ObservableObject {
         case .brightness:
             available = screen != nil
             if let screen {
-                if originalBrightness == nil { originalBrightness = screen.brightness }
+                if originalBrightness == nil { originalBrightness = (screen, screen.brightness) }
                 screen.brightness = CGFloat(value)
             }
         case .volume:
@@ -50,7 +57,7 @@ final class PlayerSystemControls: ObservableObject {
     }
 
     func restoreBrightness() {
-        if let originalBrightness { screen?.brightness = originalBrightness }
+        if let originalBrightness { originalBrightness.screen.brightness = originalBrightness.value }
         originalBrightness = nil
         hideTask?.cancel()
         indicator = nil
@@ -84,7 +91,14 @@ struct PlayerSystemVolumeBridge: UIViewRepresentable {
         override func layoutSubviews() { super.layoutSubviews(); bindControls() }
         func bindControls() {
             controls?.screen = window?.windowScene?.screen
-            controls?.volumeSlider = volumeView.subviews.compactMap { $0 as? UISlider }.first
+            controls?.volumeSlider = findSlider(in: volumeView)
+        }
+        private func findSlider(in view: UIView) -> UISlider? {
+            if let slider = view as? UISlider { return slider }
+            for child in view.subviews {
+                if let slider = findSlider(in: child) { return slider }
+            }
+            return nil
         }
     }
 }
