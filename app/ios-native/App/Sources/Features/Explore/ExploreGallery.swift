@@ -104,14 +104,15 @@ struct ExploreGallery: View {
     private func hero(height: CGFloat, top: CGFloat) -> some View {
         TabView(selection: $selection) {
             ForEach(features) { item in
-                Button { onSelect(item) } label: {
-                    heroPage(item, height: height, top: top)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.title)
-                .accessibilityHint("打开番剧详情")
-                .accessibilityIdentifier("explore-hero-\(item.id)")
-                .tag(Optional(item.id))
+                heroPage(item, height: height, top: top)
+                    .onTapGesture { onSelect(item) }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(item.title)
+                    .accessibilityHint("打开番剧详情")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { onSelect(item) }
+                    .accessibilityIdentifier("explore-hero-\(item.id)")
+                    .tag(Optional(item.id))
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
