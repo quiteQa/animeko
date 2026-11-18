@@ -6,15 +6,27 @@ import SwiftUI
 final class ExploreModel {
     private(set) var trending: [AniSubject] = []
     private(set) var trendingError: String?
+    private(set) var isLoadingTrending = true
+    private(set) var spotlight: AniSeasonSpotlight?
     private(set) var schedule: [AniScheduleDay] = []
     private(set) var scheduleError: String?
 
     func loadTrending(core: AniClient) async {
         trendingError = nil
+        isLoadingTrending = true
+        defer { isLoadingTrending = false }
         do {
-            trending = try await core.trendingSubjects()
+            let subjects = try await core.trendingSubjects()
+            try Task.checkCancellation()
+            trending = subjects
         } catch {
-            trendingError = error.localizedDescription
+            if !Task.isCancelled { trendingError = error.localizedDescription }
+        }
+    }
+
+    func loadSpotlight(core: AniClient) async {
+        if let result = try? await core.seasonSpotlight(), !Task.isCancelled {
+            spotlight = result
         }
     }
 
@@ -31,79 +43,65 @@ final class ExploreModel {
 }
 
 struct ExploreScreen: View {
-    private enum Page: Hashable { case trending, schedule }
-
     @Environment(AppServices.self) private var services
     @State private var model = ExploreModel()
-    @State private var page: Page = .trending
+    @State private var showsSchedule = false
+    @State private var selectedSubject: SubjectRoute?
 
     var body: some View {
-        Group {
-            switch page {
-            case .trending: TrendingGrid(model: model)
-            case .schedule: ScheduleView(model: model)
+        let features = model.spotlight?.items.map { item in
+            ExploreGalleryItem(id: item.subjectId, title: item.title, coverURL: item.coverUrl, backdropURL: item.backdropUrl)
+        } ?? []
+        ExploreGallery(
+            features: features,
+            seasonTitle: seasonTitle,
+            trending: model.trending.map {
+                ExploreGalleryItem(id: $0.id, title: $0.displayName, coverURL: $0.imageUrl)
+            },
+            isLoading: model.isLoadingTrending,
+            error: model.trendingError,
+            onSelect: {
+                selectedSubject = SubjectRoute(id: $0.id, name: $0.title, imageUrl: $0.coverURL)
+            },
+            onShowSchedule: { showsSchedule = true },
+            onRefresh: reload
+        )
+        .toolbarVisibility(.hidden, for: .navigationBar)
+        .navigationDestination(item: $selectedSubject) { route in
+            SubjectScreen(route: route)
+                .toolbarVisibility(.visible, for: .navigationBar)
+        }
+        .navigationDestination(isPresented: $showsSchedule) {
+            ScheduleView(model: model)
+                .navigationTitle("时间表")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarVisibility(.visible, for: .navigationBar)
+        }
+        .task {
+            if model.trending.isEmpty && model.spotlight == nil {
+                await reload()
+            } else if model.spotlight == nil {
+                await model.loadSpotlight(core: services.core)
             }
         }
-        .navigationTitle("探索")
-        // 不绘制导航栏背景, 也就没有底部的分割线; 内容滚到栏下时由系统的滚动边缘效果过渡
-        .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("页面", selection: $page) {
-                    Text("热门").tag(Page.trending)
-                    Text("时间表").tag(Page.schedule)
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
-        }
-        .task { await model.loadTrending(core: services.core) }
-        .task { await model.observeSchedule(core: services.core) }
     }
-}
 
-private struct TrendingGrid: View {
-    let model: ExploreModel
-    @Environment(AppServices.self) private var services
+    private var seasonTitle: String {
+        guard let spotlight = model.spotlight else { return "" }
+        let seasons: [Int32: String] = [1: "冬季", 2: "春季", 3: "夏季", 4: "秋季"]
+        return "\(spotlight.year) \(seasons[spotlight.quarter] ?? "")"
+    }
 
-    /// 固定三列, 行列间距相同.
-    private static let spacing: CGFloat = 12
-    private static let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: 3)
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: Self.columns, spacing: Self.spacing) {
-                ForEach(model.trending, id: \.id) { subject in
-                    NavigationLink(value: SubjectRoute(subject)) {
-                        PosterCard(title: subject.displayName, imageUrl: subject.imageUrl)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-        .refreshable { await model.loadTrending(core: services.core) }
-        .overlay {
-            if model.trending.isEmpty {
-                if let message = model.trendingError {
-                    ContentUnavailableView {
-                        Label("加载失败", systemImage: "wifi.exclamationmark")
-                    } description: {
-                        Text(message)
-                    } actions: {
-                        Button("重试") { Task { await model.loadTrending(core: services.core) } }
-                    }
-                } else {
-                    ProgressView()
-                }
-            }
-        }
+    private func reload() async {
+        async let trending: Void = model.loadTrending(core: services.core)
+        async let spotlight: Void = model.loadSpotlight(core: services.core)
+        _ = await (trending, spotlight)
     }
 }
 
 private struct ScheduleView: View {
     let model: ExploreModel
+    @Environment(AppServices.self) private var services
     @State private var selectedDate: String?
 
     private static let today = ScheduleFormat.dateKey(Date())
@@ -139,6 +137,7 @@ private struct ScheduleView: View {
                 ContentUnavailableView("这天没有放送", systemImage: "calendar")
             }
         }
+        .task { await model.observeSchedule(core: services.core) }
         .safeAreaBar(edge: .top, spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -163,65 +162,7 @@ private struct ScheduleView: View {
     }
 }
 
-/// 时间表的一行: 「时间 | 封面 | 标题与副标题 | (系统) 右箭头」四列.
-///
-/// 时间列宽由隐藏的模板文字 "88:88" 决定 (等宽数字, 随动态字体缩放), 不随实际时间文字长短变化;
-/// 封面固定尺寸; 文字列占满剩余宽度. 各列在行内垂直居中, 行高至少为封面高度, 因此各行等高.
-/// 标题嵌入封面的番剧卡片.
-///
-/// 卡片尺寸只由列宽和固定宽高比决定: 图片在占位底色上按比例填满并裁剪, 渐变与标题都是叠加层,
-/// 因此标题行数不影响卡片尺寸. 封面, 渐变和标题一起裁切在圆角内.
-private struct PosterCard: View {
-    let title: String
-    let imageUrl: String
-
-    static let aspectRatio: CGFloat = 0.7
-    static let cornerRadius: CGFloat = 16
-
-    @ScaledMetric(relativeTo: .subheadline) private var titleInset: CGFloat = 10
-
-    var body: some View {
-        Rectangle()
-            .fill(.quaternary)
-            .aspectRatio(Self.aspectRatio, contentMode: .fit)
-            .overlay {
-                AsyncImage(url: URL(string: imageUrl)) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.clear
-                }
-            }
-            .overlay { Self.bottomScrim }
-            .overlay(alignment: .bottomLeading) {
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .multilineTextAlignment(.leading)
-                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
-                    .padding(titleInset)
-            }
-            .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
-            .contentShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(title)
-    }
-
-    /// 覆盖卡片下方约三分之一的渐变: 从完全透明缓慢加深到半透明黑色, 多个色标让上缘没有明显分界.
-    private static let bottomScrim = LinearGradient(
-        stops: [
-            .init(color: .black.opacity(0), location: 0.62),
-            .init(color: .black.opacity(0.08), location: 0.70),
-            .init(color: .black.opacity(0.22), location: 0.79),
-            .init(color: .black.opacity(0.40), location: 0.88),
-            .init(color: .black.opacity(0.58), location: 1.0),
-        ],
-        startPoint: .top,
-        endPoint: .bottom,
-    )
-}
-
+/// 时间表的一行: 放送时间、封面及剧集信息。
 private struct ScheduleRow: View {
     let item: AniScheduleItem
 

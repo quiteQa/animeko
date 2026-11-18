@@ -23,6 +23,8 @@ import me.him188.ani.app.data.repository.user.SettingsRepository
 import me.him188.ani.app.domain.media.fetch.MediaSourceManager
 import me.him188.ani.danmaku.ui.DanmakuTextConversion
 import me.him188.ani.datasources.api.source.MediaSourceKind
+import me.him188.ani.datasources.api.source.MediaSourceConfig
+import me.him188.ani.datasources.api.source.FactoryId
 import org.koin.core.Koin
 import kotlin.coroutines.CoroutineContext
 import kotlin.uuid.ExperimentalUuidApi
@@ -208,6 +210,31 @@ class AniSettingsStore internal constructor(
     suspend fun setMediaSourceEnabled(instanceId: String, enabled: Boolean) {
         mediaSourceManager.setEnabled(instanceId, enabled)
     }
+
+    /** 创建 Jellyfin 实例; 查询与授权继续由上游数据源执行. */
+    @OptIn(ExperimentalUuidApi::class)
+    @Throws(Exception::class)
+    suspend fun addJellyfin(baseUrl: String, username: String, password: String, userId: String, apiKey: String) {
+        val url = baseUrl.trim().trimEnd('/')
+        require(url.startsWith("https://") || url.startsWith("http://")) { "服务器地址需要 http:// 或 https://" }
+        require(!url.contains('\r') && !url.contains('\n')) { "服务器地址无效" }
+        val usesPassword = username.isNotBlank()
+        require(usesPassword || (userId.isNotBlank() && apiKey.isNotBlank())) { "请填写用户名或 User ID 与 API Key" }
+        mediaSourceManager.addInstance(
+            instanceId = Uuid.random().toString(),
+            mediaSourceId = "jellyfin",
+            factoryId = FactoryId("jellyfin"),
+            config = MediaSourceConfig(arguments = mapOf(
+                "baseUrl" to url,
+                "authMode" to if (usesPassword) "usernamePassword" else "apiKey",
+                "username" to username.trim(), "password" to password,
+                "userId" to userId.trim(), "apikey" to apiKey.trim(),
+            )),
+        )
+    }
+
+    @Throws(Exception::class)
+    suspend fun removeMediaSource(instanceId: String) { mediaSourceManager.removeInstance(instanceId) }
 
     // endregion
 

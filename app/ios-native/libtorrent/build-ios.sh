@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 把 libtorrent (及其依赖 OpenSSL, Boost 头文件) 与上游 anitorrent 的 C++ 封装交叉编译到 iOS,
-# 产出 LibTorrent.xcframework (真机 arm64 与模拟器 arm64 的静态库与头文件).
+# 产出 LibTorrent.xcframework (真机 arm64 与宿主架构的模拟器 的静态库与头文件).
 #
 # 版本与上游 anitorrent 一致: libtorrent 与 Boost 取自 anitorrent 的构建配置 (见 versions.env).
 # 需要 macOS, Xcode, CMake. 用法: ./build-ios.sh [输出目录, 默认 ./build]
@@ -35,13 +35,19 @@ boost_include="$anitorrent_native/cpp/libs/boost"
 
 # ---------- 每个平台 ----------
 # 平台名 sysroot OpenSSL 目标
+sim_arch="$(uname -m)"
+case "$sim_arch" in
+  arm64) sim_ssl=iossimulator-arm64-xcrun ;;
+  x86_64) sim_ssl=iossimulator-xcrun ;;
+  *) echo "Unsupported simulator architecture: $sim_arch" >&2; exit 1 ;;
+esac
 platforms=(
-  "ios iphoneos ios64-xcrun"
-  "ios-simulator iphonesimulator iossimulator-arm64-xcrun"
+  "ios iphoneos ios64-xcrun arm64"
+  "ios-simulator iphonesimulator $sim_ssl $sim_arch"
 )
 
 for entry in "${platforms[@]}"; do
-  read -r name sdk openssl_target <<<"$entry"
+  read -r name sdk openssl_target target_arch <<<"$entry"
   prefix="$out/$name"
   mkdir -p "$prefix"
   min_flag="-m$( [ "$sdk" = iphoneos ] && echo iphoneos || echo ios-simulator )-version-min=$IOS_DEPLOYMENT_TARGET"
@@ -64,7 +70,7 @@ for entry in "${platforms[@]}"; do
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_SYSROOT="$sdk" \
-    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+    -DCMAKE_OSX_ARCHITECTURES="$target_arch" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
     -DCMAKE_INSTALL_PREFIX="$prefix" \
     -DLIBTORRENT_SOURCE_DIR="$src/libtorrent" \
@@ -80,8 +86,7 @@ for entry in "${platforms[@]}"; do
 
   # 合并为一个静态库, 便于 xcframework 与 cinterop 使用
   libtool -static -o "$prefix/libtorrent-ios.a" \
-    "$prefix/lib/libanitorrent-core.a" "$prefix/lib/libtorrent-rasterbar.a" \
-    "$prefix/lib/libssl.a" "$prefix/lib/libcrypto.a"
+    "$prefix/lib/libani-torrent-bridge.a" "$prefix/lib/libanitorrent-core.a" "$prefix/lib/libtorrent-rasterbar.a"
 done
 
 # ---------- xcframework ----------

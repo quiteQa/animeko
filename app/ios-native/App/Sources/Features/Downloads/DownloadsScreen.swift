@@ -9,6 +9,7 @@ struct DownloadsScreen: View {
     @Environment(AppServices.self) private var services
     @State private var downloads: [AniDownload] = []
     @State private var loaded = false
+    @State private var torrents = NativeTorrentManager.shared
     @State private var pendingDelete: AniDownload?
 
     private struct SubjectGroup: Identifiable {
@@ -32,6 +33,24 @@ struct DownloadsScreen: View {
 
     var body: some View {
         List {
+            if !nativeEntries.isEmpty {
+                Section("BT 本机缓存") {
+                    ForEach(nativeEntries) { entry in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(entry.record.title).lineLimit(2)
+                            ProgressView(value: entry.progress)
+                            Text(entry.error ?? (entry.paused ? "已暂停" : entry.metadataReady ? "\(Int(entry.progress * 100))% · \(ByteCountFormatter.string(fromByteCount: entry.speed, countStyle: .file))/s · \(entry.peers) 个连接" : "获取种子元数据…"))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .contentShape(.rect)
+                        .onTapGesture { if !entry.deleted { services.cachedPlayback = CachedTorrentPlayback(entry: entry) } }
+                        .swipeActions {
+                            Button("删除", systemImage: "trash", role: .destructive) { torrents.delete(entry) }
+                            Button(entry.paused ? "继续" : "暂停", systemImage: entry.paused ? "play" : "pause") { torrents.setPaused(entry, !entry.paused) }
+                        }
+                    }
+                }
+            }
             ForEach(groups) { group in
                 Section(subjectId == 0 ? group.name : "") {
                     ForEach(group.items, id: \.id) { download in
@@ -49,7 +68,7 @@ struct DownloadsScreen: View {
             }
         }
         .overlay {
-            if loaded, downloads.isEmpty {
+            if loaded, downloads.isEmpty, nativeEntries.isEmpty {
                 ContentUnavailableView(
                     "没有缓存",
                     systemImage: "arrow.down.circle",
@@ -76,6 +95,10 @@ struct DownloadsScreen: View {
                 loaded = true
             }
         }
+    }
+
+    private var nativeEntries: [NativeTorrentManager.Entry] {
+        torrents.entries.filter { $0.record.downloadMarked || $0.record.keepDownloading || $0.record.fileIndex != nil || $0.progress > 0 }.filter { subjectId == 0 || $0.record.subjectID == subjectId }
     }
 
     @ViewBuilder

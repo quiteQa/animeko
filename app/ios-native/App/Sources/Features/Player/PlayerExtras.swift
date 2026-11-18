@@ -71,6 +71,19 @@ struct PlayerMoreMenu<Label: View>: View {
                 SwiftUI.Label("外部链接", systemImage: "arrow.up.forward.app")
             }
 
+            if !model.audioTracks.isEmpty {
+                Menu("音轨", systemImage: "waveform") {
+                    PlayerTrackMenuContent(model: model, kind: "audio")
+                }.disabled(model.airPlay.isConnected)
+            }
+            if !model.subtitleTracks.isEmpty {
+                Menu("字幕", systemImage: "captions.bubble") {
+                    PlayerTrackMenuContent(model: model, kind: "sub")
+                }.disabled(model.airPlay.isConnected)
+            }
+            Button("AirPlay 视频投送", systemImage: "airplay.video") { model.showsAirPlay = true }
+                .disabled(model.playbackURL == nil)
+            Button("导出性能报告", systemImage: "square.and.arrow.up") { model.exportPerformanceReport() }
             Button("下载", systemImage: "arrow.down.circle") {
                 model.downloadSelected()
             }
@@ -79,6 +92,23 @@ struct PlayerMoreMenu<Label: View>: View {
             label
         }
         .accessibilityLabel("更多选项")
+    }
+}
+
+struct PlayerTrackMenuContent: View {
+    let model: PlayerModel
+    let kind: String
+
+    var body: some View {
+        if kind == "sub" {
+            Button("关闭字幕") { model.selectTrack(kind, id: nil) }
+        }
+        ForEach(kind == "sub" ? model.subtitleTracks : model.audioTracks) { track in
+            Button { model.selectTrack(kind, id: track.id) } label: {
+                if track.selected { Label(track.title, systemImage: "checkmark") }
+                else { Text(track.title) }
+            }
+        }
     }
 }
 

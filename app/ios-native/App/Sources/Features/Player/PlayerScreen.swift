@@ -1,32 +1,62 @@
 import AniCore
-import Combine
 import SwiftUI
 
-/// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个播放内核的全屏视图, 由播放页叠放在自身之上
-/// (不是模态页), 横竖屏旋转与全屏切换在同一次系统旋转动画中完成. 切换到竖屏回到播放页, 播放继续;
-/// 关闭则连同播放页一起关闭. 界面方向由播放页控制.
+/// 全屏播放. 播放状态 (`PlayerModel`)、锁定与界面方向由播放页持有; 两种布局共用播放内核.
+/// 切换到竖屏回到播放页继续播放, 关闭则连同播放页一起关闭.
 struct PlayerScreen: View {
     @Environment(AppServices.self) private var services
     let model: PlayerModel
-    /// 是否持有画面. 退出全屏时先变为 `false`, 淡出期间画面已交还内嵌播放器.
+    let systemControls: PlayerSystemControls
+    @Binding var isLocked: Bool
+    /// 是否持有画面.
     var ownsVideo = true
     /// 退出全屏, 回到竖屏播放页.
     let onExitFullscreen: () -> Void
     /// 关闭播放页 (而不只是退出全屏).
     let onClosePage: () -> Void
     @State private var controlsVisible = true
-    @State private var isLocked = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showsEpisodes = false
+    @State private var isSeeking = false
     @State private var showsSourcePicker = false
     @State private var showsWatchTogether = false
     @State private var hideControlsTask: Task<Void, Never>?
-    @State private var heldLandscape = false
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        PlayerCinemaLayout(showsPanel: showsEpisodes) { isCompact, fitsPane in
+            playbackPane(isCompact: isCompact, fitsPane: fitsPane)
+        } panel: {
+            CinemaEpisodePanel(model: model, onClose: { setEpisodesVisible(false) }) { episode in
+                setEpisodesVisible(false)
+                if episode.id != model.target.episode.id { model.play(episode: episode) }
+            }
+        }
+        .sheet(isPresented: $showsSourcePicker) {
+            SourcePickerSheet(model: model)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showsWatchTogether) {
+            WatchTogetherSheet()
+        }
+        .task { scheduleHideControls() }
+        .onDisappear { hideControlsTask?.cancel() }
+        .onChange(of: model.menuCloseCount) { scheduleHideControls() }
+        .onChange(of: model.isPlaying) { _, playing in
+            if playing { scheduleHideControls() }
+        }
+        .onChange(of: showsSourcePicker) { _, visible in
+            if !visible { scheduleHideControls() }
+        }
+        .onChange(of: showsWatchTogether) { _, visible in
+            if !visible { scheduleHideControls() }
+        }
+    }
 
-            PlayerSurface(player: model.player, isActive: ownsVideo)
-            .ignoresSafeArea()
+    private func playbackPane(isCompact: Bool, fitsPane: Bool) -> some View {
+        ZStack {
+            PlayerSurface(player: model.player, isActive: ownsVideo, fitsContainer: fitsPane)
+                .ignoresSafeArea(edges: showsEpisodes ? [] : .all)
+                .allowsHitTesting(false)
 
             DanmakuOverlay(
                 danmaku: model.visibleDanmaku(settings: services.settings),
@@ -36,19 +66,24 @@ struct PlayerScreen: View {
                 showsColor: services.settings?.danmakuShowColor ?? true,
                 currentTime: { [model] in model.playbackTime() },
             )
-            .ignoresSafeArea()
+            .ignoresSafeArea(edges: showsEpisodes ? [] : .all)
+            .allowsHitTesting(false)
 
-            // 点按画面空白处显示或隐藏控件, 双击播放/暂停; 手势放在控件之下, 不与按钮争夺触摸
-            Color.clear
-                .contentShape(.rect)
-                .onTapGesture(count: 2) {
-                    guard !isLocked, model.phase == .playing else { return }
-                    model.togglePlayback()
-                }
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+            PlayerGestureSurface(
+                controls: systemControls, isEnabled: !isLocked && ownsVideo && !showsEpisodes,
+                topInset: controlsVisible ? 58 : 16, bottomInset: controlsVisible ? 106 : 16,
+                onTap: {
+                    if showsEpisodes { setEpisodesVisible(false); return }
+                    withAnimation(controlAnimation) { controlsVisible.toggle() }
                     if controlsVisible { scheduleHideControls() }
-                }
+                },
+                onDoubleTap: {
+                    guard !isLocked, !showsEpisodes, model.phase == .playing else { return }
+                    model.togglePlayback()
+                    scheduleHideControls()
+                },
+                onInteraction: scheduleHideControls
+            )
 
             PlayerStatusView(phase: model.phase, progress: model.progress, selected: model.selected) {
                 showsSourcePicker = true
@@ -56,37 +91,34 @@ struct PlayerScreen: View {
 
             if model.showsStats {
                 PlayerStatsOverlay(model: model)
-                    .padding(.top, controlsVisible && !isLocked ? 96 : 16)
-                    .padding(.leading, 72)
+                    .padding(.top, controlsVisible && !isLocked ? 64 : 16)
+                    .padding(.leading, 56)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .allowsHitTesting(false)
             }
 
             if controlsVisible {
                 PlayerControls(
-                    model: model,
-                    // mpv 的画中画在 M2 实现 (见 GOALS.md)
-                    canStartPictureInPicture: false,
-                    isLocked: $isLocked,
-                    onClosePage: onClosePage,
-                    onExitFullscreen: onExitFullscreen,
+                    model: model, isLocked: $isLocked, isCompact: isCompact,
+                    onClosePage: onClosePage, onExitFullscreen: onExitFullscreen,
+                    onShowEpisodes: { setEpisodesVisible(!showsEpisodes) },
                     onShowSources: { showsSourcePicker = true },
                     onShowWatchTogether: { showsWatchTogether = true },
-                    onPictureInPicture: {},
                     onInteraction: scheduleHideControls,
+                    onSeekingChanged: { editing in
+                        isSeeking = editing
+                        scheduleHideControls()
+                    }
                 )
-                .environment(\.colorScheme, .dark)
                 .transition(.opacity)
             }
+            if !isLocked && !showsEpisodes {
+                PlayerAdjustmentHUD(controls: systemControls, usesSidePlacement: true)
+            }
         }
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
-        .sheet(isPresented: $showsSourcePicker) {
-            SourcePickerSheet(model: model)
-                .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $showsWatchTogether) {
-            WatchTogetherSheet()
-        }
+        .environment(\.colorScheme, .dark)
+        .foregroundStyle(.white)
+        .tint(cinemaAccent)
         .overlay(alignment: .top) {
             VStack(spacing: 8) {
                 if let navigation = services.watchTogether.pendingNavigation {
@@ -112,7 +144,7 @@ struct PlayerScreen: View {
                         }
                 }
             }
-            .padding(.top, controlsVisible ? 100 : 16)
+            .padding(.top, controlsVisible ? 62 : 16)
         }
         .overlay(alignment: .bottomTrailing) {
             // 自动跳过提示与控件层是否显示无关, 始终可以取消
@@ -126,25 +158,22 @@ struct PlayerScreen: View {
                 .padding(.leading, 16)
                 .padding(4)
                 .glassEffect(.regular, in: .capsule)
-                .padding(.trailing, 72)
-                .padding(.bottom, controlsVisible ? 80 : 24)
+                .padding(.trailing, 16)
+                .padding(.bottom, controlsVisible ? 106 : 24)
                 .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: model.pendingSkip?.name)
-        .task { scheduleHideControls() }
-        .onChange(of: model.menuCloseCount) {
-            scheduleHideControls()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            // 横持过手机之后再竖过来, 即退出全屏回到播放页; 锁定时不响应
-            guard !isLocked else { return }
-            switch UIDevice.current.orientation {
-            case .landscapeLeft, .landscapeRight: heldLandscape = true
-            case .portrait where heldLandscape: onExitFullscreen()
-            default: break
-            }
-        }
+        .animation(controlAnimation, value: model.pendingSkip?.name)
+    }
+
+    private var controlAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.22)
+    }
+
+    private func setEpisodesVisible(_ visible: Bool) {
+        if visible { systemControls.dismissIndicator() }
+        withAnimation(controlAnimation) { showsEpisodes = visible }
+        scheduleHideControls()
     }
 
     private func scheduleHideControls() {
@@ -152,8 +181,9 @@ struct PlayerScreen: View {
         hideControlsTask = Task {
             try? await Task.sleep(for: .seconds(4))
             // 菜单展开时保持显示; 菜单关闭后重新计时
-            guard !Task.isCancelled, !model.isMenuOpen, model.isPlaying || isLocked else { return }
-            withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
+            guard !Task.isCancelled, !model.isMenuOpen, !showsEpisodes, !isSeeking,
+                  !showsSourcePicker, !showsWatchTogether, model.isPlaying || isLocked else { return }
+            withAnimation(controlAnimation) { controlsVisible = false }
         }
     }
 }

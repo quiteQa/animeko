@@ -8,20 +8,26 @@ struct PlayerSurface: UIViewRepresentable {
     let player: MPVPlayer
     /// 为 `false` 时不持有画面 (被全屏覆盖, 或全屏画面正在退出).
     var isActive = true
+    var fitsContainer = false
 
     func makeUIView(context: Context) -> SurfaceContainer {
         let container = SurfaceContainer(video: player.videoView)
         container.backgroundColor = .black
+        container.fitsContainer = fitsContainer
         container.isActive = isActive
         return container
     }
 
     func updateUIView(_ container: SurfaceContainer, context: Context) {
+        container.fitsContainer = fitsContainer
         container.isActive = isActive
     }
 
     final class SurfaceContainer: UIView {
         private let video: UIView
+        var fitsContainer = false {
+            didSet { if fitsContainer != oldValue { setNeedsLayout() } }
+        }
 
         /// 持有画面时, 进入窗口或重新布局都会确认画面在自己之内; 画面被另一个容器取走后, 取回由下一次布局完成.
         var isActive = false {
@@ -62,7 +68,7 @@ struct PlayerSurface: UIViewRepresentable {
             guard bounds.width > 0, bounds.height > 0 else { return }
             let widthRatio = bounds.width / canvas.width
             let heightRatio = bounds.height / canvas.height
-            let fills = (video as? MPVVideoView)?.fillsContainer == true
+            let fills = !fitsContainer && (video as? MPVVideoView)?.fillsContainer == true
             let scale = fills ? max(widthRatio, heightRatio) : min(widthRatio, heightRatio)
             video.bounds = CGRect(origin: .zero, size: canvas)
             video.center = CGPoint(x: bounds.midX, y: bounds.midY)

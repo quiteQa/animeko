@@ -1,0 +1,66 @@
+name: NativeMediaHost
+options:
+  bundleIdPrefix: me.him188.ani.native.media-tests
+  deploymentTarget:
+    iOS: '26.0'
+packages:
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit
+    exactVersion: 1.1.0-n9.0.2
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    DEVELOPMENT_TEAM: ''
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_DEBUG_DYLIB: NO
+targets:
+  NativeMediaHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: ../App/Sources/Media
+        excludes: [NativeTorrentManager.swift]
+      - path: ../App/Sources/Features/Player/Support
+      - path: ../App/Sources/Features/Player/MPVBackend.swift
+      - path: ../App/Sources/Features/Player/MPVPlayer.swift
+      - path: ../App/Sources/Features/Player/PlayerGestureSurface.swift
+      - path: ../App/Sources/Common/Diagnostics.swift
+    settings:
+      base:
+        SWIFT_OBJC_BRIDGING_HEADER: ../App/Sources/Media/AnimekoNative-Bridging-Header.h
+    info:
+      path: .build/Info.plist
+      properties:
+        CFBundleDisplayName: Native Media Tests
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    dependencies:
+      - package: MPVKit
+        product: MPVKit
+  NativeMediaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+      - path: ../FrameLab/Tests/Fixtures
+        buildPhase: resources
+      - path: ../FrameLab/Samples/pip-sdr.mp4
+        buildPhase: resources
+    dependencies:
+      - target: NativeMediaHost
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/NativeMediaHost.app/NativeMediaHost
+        BUNDLE_LOADER: $(TEST_HOST)
+schemes:
+  NativeMediaHost:
+    build:
+      targets:
+        NativeMediaHost: all
+        NativeMediaTests: [test]
+    test:
+      targets: [NativeMediaTests]

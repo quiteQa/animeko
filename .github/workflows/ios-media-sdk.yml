@@ -1,0 +1,44 @@
+name: iOS Media SDK Checks
+on:
+  push:
+    branches: ['claude/**', 'codex/**']
+    paths:
+      - 'app/ios-native/App/Sources/Media/**'
+      - 'app/ios-native/App/Sources/Features/Player/**'
+      - 'app/ios-native/MediaTests/**'
+      - 'ci-helper/check-native-media.py'
+      - '.github/workflows/ios-media-sdk.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: ios-media-sdk-${{ github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  media-sdk:
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v6
+      - name: Resolve the pinned media SDK
+        working-directory: app/ios-native/FrameLab
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -resolvePackageDependencies -project NativeFrameLab.xcodeproj -scheme NativeFrameLab -clonedSourcePackagesDirPath "$RUNNER_TEMP/media-packages"
+      - name: Typecheck production media code against Apple and FFmpeg headers
+        run: python3 ci-helper/check-native-media.py "$RUNNER_TEMP/media-packages"
+      - name: Run production frame, HTTP and conversion tests
+        working-directory: app/ios-native/MediaTests
+        run: |
+          xcodegen generate
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for runtime,items in sorted(d["devices"].items(),reverse=True) if "iOS" in runtime for x in items if x["name"].startswith("iPhone")))')
+          xcodebuild test -project NativeMediaHost.xcodeproj -scheme NativeMediaHost -destination "platform=iOS Simulator,id=$device" -clonedSourcePackagesDirPath "$RUNNER_TEMP/media-packages" CODE_SIGNING_ALLOWED=NO -resultBundlePath "$RUNNER_TEMP/NativeMediaTests.xcresult"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: native-media-test-results
+          path: ${{ runner.temp }}/NativeMediaTests.xcresult
+          if-no-files-found: ignore

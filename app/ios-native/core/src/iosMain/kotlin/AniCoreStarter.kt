@@ -55,7 +55,7 @@ fun startAniCore(): AniClient {
     IosLoggingConfigurator.configure(context.files.logsDir.path, SystemFileSystem)
 
     val koin = startKoin {
-        modules(getCommonKoinModule({ context }, scope))
+        modules(getCommonKoinModule({ context }, scope, enableNativeTorrentSources = true))
         modules(getIosModules(context, context.files.dataDir.resolve("torrent"), scope))
     }.startCommonKoinModule(context, scope).koin
 

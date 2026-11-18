@@ -1,0 +1,46 @@
+name: PlayerInteractionHost
+options:
+  bundleIdPrefix: me.him188.ani.player-tests
+  deploymentTarget:
+    iOS: '26.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    CODE_SIGNING_ALLOWED: NO
+    ENABLE_DEBUG_DYLIB: NO
+targets:
+  PlayerInteractionHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: ../App/Sources/Common/Orientation.swift
+      - path: ../App/Sources/Features/Player/PlayerViewport.swift
+      - path: ../App/Sources/Features/Player/PlayerGestureSurface.swift
+      - path: ../App/Sources/Features/Player/PlayerCinemaLayout.swift
+      - path: ../App/Sources/Features/Player/Support/TimeText.swift
+      - path: ../App/Sources/Features/Player/Support/PlayerPresentationState.swift
+      - path: ../App/Sources/Features/Player/Support/PlayerVerticalAdjustment.swift
+      - path: ../App/Sources/Features/Explore/ExploreGallery.swift
+    info:
+      path: .build/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+  PlayerInteractionTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: PlayerInteractionHost
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  PlayerInteractionHost:
+    build:
+      targets:
+        PlayerInteractionHost: all
+        PlayerInteractionTests: [test]
+    test:
+      targets: [PlayerInteractionTests]

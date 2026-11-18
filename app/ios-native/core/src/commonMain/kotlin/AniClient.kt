@@ -10,20 +10,26 @@
 package me.him188.ani.app.iosnative.core
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.todayIn
+import me.him188.ani.app.data.models.schedule.AnimeSeasonId
 import me.him188.ani.app.data.network.AniApiProvider
 import me.him188.ani.app.data.network.AniEpisodeCommentService
 import me.him188.ani.app.data.network.BangumiCommentService
 import me.him188.ani.app.data.network.TrendsRepository
 import me.him188.ani.app.data.network.toEpisodeComment
 import me.him188.ani.app.data.network.AniSubjectSearchService
+import me.him188.ani.app.data.network.AnimeScheduleService
 import me.him188.ani.app.data.repository.episode.EpisodeCollectionRepository
 import me.him188.ani.app.data.repository.episode.setEpisodeWatched
 import me.him188.ani.app.data.repository.subject.SetSubjectCollectionTypeOrDeleteUseCase
@@ -38,6 +44,7 @@ import me.him188.ani.app.domain.session.auth.BangumiOAuthClient
 import me.him188.ani.app.domain.session.auth.OAuthConfigurator
 import org.koin.core.Koin
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 
 /**
@@ -61,6 +68,7 @@ class AniClient internal constructor(
     private val sessionManager: SessionManager by lazy { koin.get() }
     private val userRepository: UserRepository by lazy { koin.get() }
     private val trendsRepository: TrendsRepository by lazy { koin.get() }
+    private val animeScheduleService: AnimeScheduleService by lazy { koin.get() }
     private val getAnimeSchedule: GetAnimeScheduleFlowUseCase by lazy { koin.get() }
     private val getSubjectRecommendation: GetSubjectRecommendationUseCase by lazy { koin.get() }
     private val episodeCommentService: AniEpisodeCommentService by lazy { koin.get() }
@@ -205,6 +213,48 @@ class AniClient internal constructor(
     @Throws(Exception::class)
     suspend fun trendingSubjects(): List<AniSubject> {
         return trendsRepository.getTrendsInfo().subjects.map { it.toAniSubject() }
+    }
+
+    /** 当季轮播优先选在播条目，横幅与封面来自同一个条目。 */
+    @Throws(Exception::class)
+    suspend fun seasonSpotlight(): AniSeasonSpotlight {
+        val today = Clock.System.todayIn(TimeZone.currentSystemDefault())
+        val season = AnimeSeasonId.fromDate(today.year, today.monthNumber)
+        val now = Clock.System.now()
+        val candidates = animeScheduleService.getScheduleInfo(season)?.list.orEmpty()
+            .filter { it.bangumiId > 0 }
+            .sortedByDescending { item -> item.begin?.let { it <= now } == true && item.end?.let { it > now } != false }
+            .distinctBy { it.bangumiId }
+            .take(8)
+        val features = mutableListOf<AniSpotlightItem>()
+        for (batch in candidates.chunked(4)) {
+            val results = coroutineScope {
+                batch.map { item ->
+                    async {
+                        withTimeoutOrNull(5_000) {
+                            try {
+                                val subject = subjectCollectionRepository.subjectCollectionFlow(item.bangumiId)
+                                    .first().subjectInfo
+                                if (subject.nsfw || subject.imageLarge.isBlank()) return@withTimeoutOrNull null
+                                AniSpotlightItem(
+                                    subjectId = item.bangumiId,
+                                    title = subject.displayName,
+                                    coverUrl = subject.imageLarge,
+                                    backdropUrl = subject.tmdbArt?.primaryBackdrop?.medium.orEmpty(),
+                                )
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+            features += results.filterNotNull()
+            if (features.size >= 4) break
+        }
+        return AniSeasonSpotlight(season.year, season.season.quarterNumber, features.take(4))
     }
 
     /**

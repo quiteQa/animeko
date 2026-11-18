@@ -4,6 +4,8 @@
 
 构建与自动测试入口、首版阻塞项和真机验收见 [VALIDATION.md](VALIDATION.md)。
 
+界面层级、视觉规范与分阶段优化建议见 [UI_REVIEW.md](UI_REVIEW.md)。
+
 本文描述当前实现. 目标与已定决策 (MPV 内核, BT, SKIE 桥接等) 见 [GOALS.md](GOALS.md), 其中列出了与当前实现的差异.
 
 ```
@@ -24,7 +26,7 @@ app/ios-native/
     └── Tests/             不依赖 AniCore 的纯 Swift 单元测试
 ```
 
-对上游文件的修改只有 `settings.gradle.kts` 中的一行 `includeProject`.
+上游集成包括 Gradle 模块声明、可选的原生 BT 数据源查询开关及 Koin 参数。其他平台保留默认的数据源行为。
 
 ## 分层
 
@@ -35,7 +37,7 @@ SwiftUI 视图 ── @Observable 模型 ── mpv (MPVKit) / 弹幕 CALayer  (
                     │
    AniClient / AniEpisodeSession (Kotlin facade, 新写, 薄)
                     │
- app-data · datasource · danmaku · application 的 Koin 装配        (上游, 不改)
+ app-data · datasource · danmaku · application 的 Koin 装配        (上游复用)
 ```
 
 - Swift 只调用 `AniClient` 与 `AniEpisodeSession`. 它们只暴露 `Ani*` 值类型 (String / Int / Long / List / Map),
@@ -47,7 +49,8 @@ SwiftUI 视图 ── @Observable 模型 ── mpv (MPVKit) / 弹幕 CALayer  (
 - 界面状态全部归 Swift `@Observable`. Kotlin 只负责查询, 选择与解析, 不持有屏幕状态.
 - Swift 持有播放内核 `MPVPlayer` (libmpv, 由 [MPVKit](https://github.com/mpvkit/MPVKit) 的 LGPL 构建以 Swift Package 引入).
   画面经 gpu-next (Vulkan → MoltenVK → Metal) 渲染到一个 `CAMetalLayer`, 硬件解码用 VideoToolbox; 内嵌与全屏共用
-  这一个画面视图. `AniEpisodeSession.resolveSelected()` 返回可播放 URL 与请求头, 交给 mpv 的 `loadfile`. 高频播放进度不跨边界; 本地保存快照约每 5 秒及暂停/退出时通过 facade 写入。
+  这一个画面视图。画中画使用同一 mpv 的软件 render API, 三个 IOSurface-backed 缓冲区限制在途帧。
+  `AniEpisodeSession.resolveSelected()` 返回可播放 URL 与请求头, 交给 mpv 的 `loadfile`. 高频播放进度不跨边界; 本地保存快照约每 5 秒及暂停/退出时通过 facade 写入。
 - 弹幕一次性取回整集 (`fetchDanmaku()`), 由 Swift 的 `DanmakuOverlayView` 按播放器时间逐帧排布, 也不跨边界.
 
 ## 一集的播放流程
@@ -81,19 +84,15 @@ SwiftUI 视图 ── @Observable 模型 ── mpv (MPVKit) / 弹幕 CALayer  (
 - `app-data` 以 `api` 依赖 `danmaku-ui-config`, 后者也是 Compose 模块.
 - Koin 装配 (`getCommonKoinModule`, 660 行) 位于 `:app:shared:application`, 该模块依赖 `ui-foundation` 与整个 `:app:shared`.
 
-要做到"模块级脱 Compose", 必须改上游的 `app-data`, `app-platform` 与 Koin 装配, 这与"上游文件修改只限两处"冲突,
-每次 rebase 都会付出代价. 因此采用 **API 级切割**: `AniCore.framework` 照常链接上游 (含 Compose 与 `application`) 的 klib,
-但 `transitiveExport = false`, Swift 只能看到 facade. 好处是上游源码零改动, Koin 装配零复制; 代价是二进制体积,
+要做到"模块级脱 Compose", 必须改上游的 `app-data`, `app-platform` 与 Koin 装配, 会扩大 Kotlin 模块改动范围。因此采用 **API 级切割**: `AniCore.framework` 照常链接上游 (含 Compose 与 `application`) 的 klib,
+但 `transitiveExport = false`, Swift 只能看到 facade. Koin 装配由上游提供, Swift 仅调用 facade; 代价是二进制体积,
 需要在 macOS 上实测 (Kotlin/Native 链接时会去掉未被引用的代码, 但 Koin 模块会引用大量类).
 
 ### 其他发现
 
 - iOS 的网页资源解析 `IosWebMediaResolver` 使用后台 `WKWebView`, `ComposeContent()` 为空实现, 不需要 Compose 宿主.
-- `torrent:anitorrent` 的公共代码会为 iOS 编译 (`ani.kmp-library` 在 `ani.enable.ios=true` 时添加 iOS target), 但原生引擎只有
-  JVM 版本, iOS 上没有本地 BT 引擎.
-- 上游在 iOS 上不查询 BT 数据源: `MediaSourceManager` 以 `MediaFetcherConfig(currentPlatform() != Platform.Ios)`
-  创建查询器, 查询会话直接排除 BT 源. 因此 iOS 上没有 BT 候选, PikPak 云离线也无从使用;
-  本客户端不提供 BT 列表页与 PikPak 设置, 数据源列表也不显示 BT 源. 要支持 BT 需要修改上游的这一行.
+- iOS 本地 BT 通过 `libtorrent/bridge` 的 C ABI 提供, Swift 管理会话、Range 读取与缓存; Kotlin 负责查询和种子文件选集。
+- 原生客户端启动 Koin 时显式启用 BT 数据源。缓存保存磁力标识与原生 resume 数据, 可以从缓存管理直接读取本机已验证的分片。
 - 上游 iOS framework 依赖 Sentry 与 onnxruntime 两个 pod (验证码识别). facade 链接 `application` 的 klib, 因此同样需要这两个 pod,
   集成方式沿用上游的 CocoaPods, 而不是单独的 XCFramework.
 
@@ -118,10 +117,13 @@ ani.build.framework=true
 # 1. 准备 FFmpeg 运行时 (被 AniCore 链接, 并随 App 嵌入)
 ./gradlew :utils:http-downloader:extractMediampFfmpegAppleRuntime
 
-# 2. 生成 AniCore 的 podspec
+# 2. 构建原生 BT 引擎 (真机 arm64 + 当前 Mac 架构的模拟器)
+./app/ios-native/libtorrent/build-ios.sh
+
+# 3. 生成 AniCore 的 podspec
 ./gradlew :app:ios-native:core:podspec
 
-# 3. 生成 Xcode 工程并安装 pod
+# 4. 生成 Xcode 工程并安装 pod
 cd app/ios-native/App
 xcodegen generate
 pod install
@@ -160,11 +162,13 @@ Xcode 构建时, CocoaPods 的脚本阶段会调用 Gradle 编译并链接 AniCo
 
 ## 已知差异与待办
 
-- 画中画与 AirPlay 尚未在 mpv 内核上实现, 在 M2 验证 (见 [GOALS.md](GOALS.md)).
+- 主播放器在明确 SDR 输入下使用 mpv 软件 render API 生成系统画中画帧, 共享音轨、字幕与媒体时间轴; 后台不调用 OpenGL/Metal。系统画中画、音画同步与长时功耗需要目标 iPhone 验证。
+- AirPlay 使用手机端 FFmpeg 解码和 Apple H.264/AAC 编码, 经随机令牌 HTTP 提供分片视频。原分辨率 SDR 与 1080p 兼容模式由用户明确选择; 没有真实接收器证据时保持实验状态。
+- HDR/DV 全保真属于后续目标; 不允许已知 HDR/DV 静默进入 8 位 SDR 路径。
 
 - 自动跳过 OP/ED 只用服务器汇总的跳过点, 不读取视频文件自带的章节; 也不为跳转目标预缓存 (上游经 HLS 代理预取分片),
   跳过后可能需要短暂缓冲.
-- 没有 BT 列表页 (原因见 P0 的其他发现). 需要验证码的数据源在 iOS 上无法交互验证, 手动查找会提示不支持 (上游 iOS 同样不支持).
+- BT 候选在选源中显示, 下载在缓存管理中操作。需要验证码的数据源在 iOS 上无法交互验证, 手动查找会提示不支持 (上游 iOS 同样不支持).
 - 弹幕支持按来源开关, 不支持时间偏移与发送弹幕.
 - 评论只显示纯文本 (图片与表情以占位文字显示), 不支持回复, 点赞与举报.
 - 缓存只能从播放页逐集添加, 没有上游的批量选集下载.

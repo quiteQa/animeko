@@ -21,6 +21,7 @@ struct AniNativeApp: App {
                 // 一起看的提示与跳转读取 AppServices, 必须位于 environment 之内
                 .watchTogetherHost()
                 .environment(services)
+                .task { await NativeTorrentManager.shared.restore() }
                 .task { await services.observeSession() }
                 .task { await services.observeSettings() }
                 .task { await services.watchTogether.observe(core: services.core) }
@@ -50,6 +51,7 @@ enum RootTab: String, CaseIterable, Identifiable {
 }
 
 private struct RootView: View {
+    @Environment(AppServices.self) private var services
     /// 只在启动时读取一次设置; 之后切换标签不改变设置.
     @State private var tab = RootTab(rawValue: UserDefaults.standard.string(forKey: RootTab.launchTabKey) ?? "") ?? .collection
 
@@ -79,7 +81,12 @@ private struct RootView: View {
                 }
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .fullScreenCover(item: Binding(get: { services.cachedPlayback }, set: { services.cachedPlayback = $0 })) { model in
+            NavigationStack { CachedTorrentPlayer(model: model) }
+        }
+        .fullScreenCover(item: Binding(get: { services.restoredPlayback }, set: { services.restoredPlayback = $0 })) { item in
+            NavigationStack { EpisodePlayerPage(model: item.model) }
+        }
     }
 }
 
@@ -121,6 +128,11 @@ final class AppServices {
 
     var isLoggedIn: Bool { session?.loggedIn == true }
 
+    var cachedPlayback: CachedTorrentPlayback?
+    var backgroundCachePlayback: CachedTorrentPlayback?
+    var backgroundPlayback: PlayerModel?
+    var restoredPlayback: RestoredPlayback?
+
     /// 一起看.
     let watchTogether = WatchTogetherModel()
 
@@ -138,4 +150,9 @@ final class AppServices {
             self.settings = settings
         }
     }
+}
+
+struct RestoredPlayback: Identifiable {
+    let id = UUID()
+    let model: PlayerModel
 }
