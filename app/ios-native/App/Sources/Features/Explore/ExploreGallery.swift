@@ -29,7 +29,7 @@ struct ExploreGallery: View {
     @State private var selection: Int32?
     @State private var artwork: [Int32: GalleryArtwork] = [:]
     @State private var heroVisible = true
-    @GestureState private var isSwiping = false
+    @State private var isSwiping = false
 
     private var selectedIndex: Int {
         features.firstIndex { $0.id == selection } ?? 0
@@ -102,22 +102,28 @@ struct ExploreGallery: View {
     }
 
     private func hero(height: CGFloat, top: CGFloat) -> some View {
-        TabView(selection: $selection) {
-            ForEach(features) { item in
-                heroPage(item, height: height, top: top)
-                    .onTapGesture { onSelect(item) }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(item.title)
-                    .accessibilityHint("打开番剧详情")
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { onSelect(item) }
-                    .accessibilityIdentifier("explore-hero-\(item.id)")
-                    .tag(Optional(item.id))
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(features) { item in
+                    heroPage(item, height: height, top: top)
+                        .containerRelativeFrame(.horizontal)
+                        .onTapGesture { onSelect(item) }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(item.title)
+                        .accessibilityHint("打开番剧详情")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { onSelect(item) }
+                        .accessibilityIdentifier("explore-hero-\(item.id)")
+                        .id(item.id)
+                }
             }
+            .scrollTargetLayout()
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
+        .scrollIndicators(.hidden)
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $selection)
+        .onScrollPhaseChange { _, phase in isSwiping = phase != .idle }
         .frame(height: height)
-        .simultaneousGesture(DragGesture(minimumDistance: 12).updating($isSwiping) { _, state, _ in state = true })
         .overlay(alignment: .top) { heading.padding(.top, top + 8) }
         .overlay(alignment: .bottomTrailing) {
             if features.count > 1 { pageIndicator.padding(.trailing, 18).padding(.bottom, 20) }
