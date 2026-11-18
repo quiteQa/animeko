@@ -57,8 +57,10 @@ final class PlayerInteractionUITests: XCTestCase {
         right.press(forDuration: 0.05, thenDragTo: fullscreen.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.32)))
         XCTAssertEqual(app.staticTexts["indicator"].label, "volume")
         app.sliders["progress"].adjust(toNormalizedSliderPosition: 0.7)
-        app.buttons["playback"].tap()
-        XCTAssertEqual(app.buttons["playback"].label, "播放")
+        let playback = fullscreen.buttons["playback"]
+        XCTAssertTrue(playback.isHittable)
+        playback.tap()
+        XCTAssertEqual(playback.label, "播放")
         app.buttons["lock"].tap()
         XCTAssertEqual(app.buttons["lock"].label, "解锁")
         XCUIDevice.shared.orientation = .portrait
