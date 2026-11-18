@@ -81,7 +81,6 @@ private struct RootView: View {
                 }
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
         .fullScreenCover(item: Binding(get: { services.cachedPlayback }, set: { services.cachedPlayback = $0 })) { model in
             NavigationStack { CachedTorrentPlayer(model: model) }
         }

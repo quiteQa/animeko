@@ -4,7 +4,59 @@ import SwiftUI
 @main
 struct PlayerInteractionHost: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    var body: some Scene { WindowGroup { InteractionHarness() } }
+    var body: some Scene {
+        WindowGroup {
+            if ProcessInfo.processInfo.arguments.contains("--explore-gallery") {
+                ExploreGalleryHarness()
+            } else {
+                InteractionHarness()
+            }
+        }
+    }
+}
+
+private struct ExploreGalleryHarness: View {
+    private enum TabID { case collection, explore, account, search }
+    @State private var tab = TabID.explore
+    @State private var subject: ExploreGalleryItem?
+    @State private var isShowingSchedule = false
+
+    var body: some View {
+        TabView(selection: $tab) {
+            Tab("追番", systemImage: "play.square.stack", value: TabID.collection) { Text("追番") }
+            Tab("探索", systemImage: "sparkles.tv", value: TabID.explore) {
+                NavigationStack {
+                    ExploreGallery(
+                        features: [item(1, "远山乐章"), item(2, "薄暮书店")],
+                        seasonTitle: "当季",
+                        trending: [item(1, "远山乐章"), item(3, "晚风列车"), item(4, "海风来信"), item(5, "冬日邮差")],
+                        isLoading: false, error: nil,
+                        onSelect: { subject = $0 },
+                        onShowSchedule: { isShowingSchedule = true },
+                        onRefresh: {}
+                    )
+                    .toolbarVisibility(.hidden, for: .navigationBar)
+                    .navigationDestination(item: $subject) { item in
+                        Text(item.title).accessibilityIdentifier("gallery-detail")
+                            .toolbarVisibility(.visible, for: .navigationBar)
+                    }
+                    .navigationDestination(isPresented: $isShowingSchedule) {
+                        Text("每周放送").accessibilityIdentifier("gallery-schedule")
+                            .toolbarVisibility(.visible, for: .navigationBar)
+                    }
+                }
+            }
+            Tab("我的", systemImage: "person.crop.circle", value: TabID.account) { Text("我的") }
+            Tab(value: TabID.search, role: .search) {
+                Text("搜索番剧").accessibilityIdentifier("gallery-search")
+            }
+        }
+        .environment(\.scenePhase, .inactive)
+    }
+
+    private func item(_ id: Int32, _ title: String) -> ExploreGalleryItem {
+        ExploreGalleryItem(id: id, title: title, coverURL: "")
+    }
 }
 
 /// 使用生产视口、方向策略和手势层, 不依赖账户、网络资源或解码器.

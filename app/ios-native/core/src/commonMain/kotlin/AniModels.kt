@@ -243,6 +243,19 @@ data class AniScheduleDay(
     val items: List<AniScheduleItem>,
 )
 
+data class AniSeasonSpotlight(
+    val year: Int,
+    val quarter: Int,
+    val items: List<AniSpotlightItem>,
+)
+
+data class AniSpotlightItem(
+    val subjectId: Int,
+    val title: String,
+    val coverUrl: String,
+    val backdropUrl: String,
+)
+
 /**
  * @param airingTimeMillis 放送时刻 (epoch 毫秒). [timeKnown] 为 `false` 时只有日期准确.
  */

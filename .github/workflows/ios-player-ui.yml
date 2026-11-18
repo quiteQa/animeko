@@ -1,9 +1,11 @@
-name: iOS Player Interaction
+name: iOS Native Interaction
 on:
   push:
     branches: ['claude/**', 'codex/**']
     paths:
       - 'app/ios-native/App/Sources/Features/Player/**'
+      - 'app/ios-native/App/Sources/Features/Explore/**'
+      - 'app/ios-native/App/Sources/AniNativeApp.swift'
       - 'app/ios-native/App/Sources/Common/Orientation.swift'
       - 'app/ios-native/PlayerUITests/**'
       - '.github/workflows/ios-player-ui.yml'
@@ -21,7 +23,7 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
     steps:
       - uses: actions/checkout@v6
-      - name: Test production viewport and gestures on iPhone Simulator
+      - name: Test production layouts and controls on iPhone Simulator
         working-directory: app/ios-native/PlayerUITests
         run: |
           brew install xcodegen

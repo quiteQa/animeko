@@ -21,6 +21,7 @@ targets:
       - path: ../App/Sources/Features/Player/Support/TimeText.swift
       - path: ../App/Sources/Features/Player/Support/PlayerPresentationState.swift
       - path: ../App/Sources/Features/Player/Support/PlayerVerticalAdjustment.swift
+      - path: ../App/Sources/Features/Explore/ExploreGallery.swift
     info:
       path: .build/Info.plist
       properties:
