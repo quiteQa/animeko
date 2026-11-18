@@ -9,6 +9,14 @@ final class ExploreGalleryUITests: XCTestCase {
         app.launchArguments = ["--explore-gallery", "-AppleLanguages", "(zh-Hans)"]
         app.launch()
 
+        let initialHero = app.buttons["explore-hero-1"]
+        XCTAssertTrue(initialHero.waitForExistence(timeout: 10))
+        let heroHeight = initialHero.frame.height
+        XCTAssertEqual(heroHeight / app.frame.height, 2.0 / 3.0, accuracy: 0.06)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.22))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.74))
+        start.press(forDuration: 0.08, thenDragTo: end)
+
         let page = app.buttons["explore-page-2"]
         XCTAssertTrue(page.waitForExistence(timeout: 10))
         page.tap()
@@ -29,6 +37,8 @@ final class ExploreGalleryUITests: XCTestCase {
         XCTAssertTrue(detail.waitForExistence(timeout: 5))
         app.navigationBars.buttons.firstMatch.tap()
         app.buttons["explore-schedule"].tap()
-        XCTAssertTrue(app.staticTexts["gallery-schedule"].waitForExistence(timeout: 5))
+        let schedule = app.staticTexts["gallery-schedule"]
+        XCTAssertTrue(schedule.waitForExistence(timeout: 5))
+        XCTAssertEqual(schedule.value as? String, "已刷新")
     }
 }

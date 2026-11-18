@@ -50,22 +50,25 @@ struct ExploreGallery: View {
         GeometryReader { geometry in
             let top = geometry.safeAreaInsets.top
             let windowHeight = geometry.size.height + top + geometry.safeAreaInsets.bottom
-            let headerHeight = min(340, max(top + 140, windowHeight / 3))
-            ScrollView {
-                VStack(spacing: 0) {
-                    if features.isEmpty {
-                        heading.padding(.top, top + 8).padding(.bottom, 8)
-                    } else {
-                        hero(height: headerHeight, top: top)
-                            .onScrollVisibilityChange(threshold: 0.45) { heroVisible = $0 }
+            let headerHeight = max(top + 140, windowHeight * 2 / 3)
+            ZStack {
+                ambientBackdrop.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if features.isEmpty {
+                            heading.padding(.top, top + 8).padding(.bottom, 8)
+                        } else {
+                            hero(height: headerHeight, top: top)
+                                .onScrollVisibilityChange(threshold: 0.45) { heroVisible = $0 }
+                        }
+                        gallery(width: geometry.size.width)
                     }
-                    gallery(width: geometry.size.width)
+                    .padding(.bottom, 24)
                 }
-                .padding(.bottom, 24)
+                .refreshable { await onRefresh() }
+                .ignoresSafeArea(.container, edges: .top)
             }
-            .refreshable { await onRefresh() }
-            .ignoresSafeArea(.container, edges: .top)
-            .background { ambientBackdrop.ignoresSafeArea() }
         }
         .onChange(of: features.map(\.id), initial: true) { _, ids in
             if !ids.contains(where: { $0 == selection }) { selection = ids.first }
@@ -123,33 +126,7 @@ struct ExploreGallery: View {
     private func heroPage(_ item: ExploreGalleryItem, height: CGFloat, top: CGFloat) -> some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottomLeading) {
-                if let art = artwork[item.id] {
-                    if art.isLandscape {
-                        art.image.resizable().scaledToFill()
-                            .frame(width: geometry.size.width, height: height)
-                            .clipped()
-                            .mask(heroFade)
-                    } else {
-                        art.image.resizable().scaledToFit()
-                            .frame(maxWidth: geometry.size.width * 0.48, maxHeight: height * 0.74)
-                            .clipShape(.rect(cornerRadius: 14))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                            .padding(.trailing, 20)
-                            .padding(.top, top + 30)
-                            .mask(heroFade)
-                    }
-                }
-                LinearGradient(
-                    stops: [
-                        .init(color: paper.opacity(reduceTransparency ? 1 : 0.82), location: 0),
-                        .init(color: paper.opacity(0.38), location: 0.14),
-                        .init(color: .clear, location: 0.43),
-                        .init(color: .clear, location: 0.64),
-                        .init(color: paper.opacity(0.75), location: 0.88),
-                        .init(color: paper.opacity(0.02), location: 1),
-                    ],
-                    startPoint: .top, endPoint: .bottom
-                )
+                heroArtwork(artwork[item.id], width: geometry.size.width, height: height, top: top)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(seasonTitle)
                         .font(.subheadline.weight(.semibold))
@@ -168,6 +145,47 @@ struct ExploreGallery: View {
             .frame(width: geometry.size.width, height: height)
             .clipped()
             .contentShape(.rect)
+        }
+    }
+
+    private func heroArtwork(_ art: GalleryArtwork?, width: CGFloat, height: CGFloat, top: CGFloat) -> some View {
+        let edge = min(0.3, (top + 32) / height)
+        return ZStack {
+            if let art {
+                if art.isLandscape {
+                    art.image.resizable().scaledToFill()
+                        .frame(width: width, height: height)
+                        .clipped()
+                        .mask(heroFade)
+                } else {
+                    art.image.resizable().scaledToFit()
+                        .frame(maxWidth: width * 0.48, maxHeight: height * 0.74)
+                        .clipShape(.rect(cornerRadius: 14))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                        .padding(.trailing, 20)
+                        .padding(.top, top + 30)
+                        .mask(heroFade)
+                }
+            }
+            LinearGradient(
+                stops: [
+                    .init(color: paper.opacity(reduceTransparency ? 1 : 0.82), location: 0),
+                    .init(color: paper.opacity(0.55), location: edge),
+                    .init(color: .clear, location: 0.43),
+                    .init(color: .clear, location: 0.64),
+                    .init(color: paper.opacity(0.75), location: 0.88),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+        }
+        .frame(width: width, height: height)
+        // 海报和可读性遮罩一起从固定背景淡入，滚动回弹时接缝仍然透明。
+        .mask {
+            LinearGradient(
+                stops: [.init(color: .clear, location: 0), .init(color: .white, location: edge)],
+                startPoint: .top, endPoint: .bottom
+            )
         }
     }
 

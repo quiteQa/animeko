@@ -20,6 +20,7 @@ private struct ExploreGalleryHarness: View {
     @State private var tab = TabID.explore
     @State private var subject: ExploreGalleryItem?
     @State private var isShowingSchedule = false
+    @State private var didRefresh = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -33,7 +34,7 @@ private struct ExploreGalleryHarness: View {
                         isLoading: false, error: nil,
                         onSelect: { subject = $0 },
                         onShowSchedule: { isShowingSchedule = true },
-                        onRefresh: {}
+                        onRefresh: { didRefresh = true }
                     )
                     .toolbarVisibility(.hidden, for: .navigationBar)
                     .navigationDestination(item: $subject) { item in
@@ -42,6 +43,7 @@ private struct ExploreGalleryHarness: View {
                     }
                     .navigationDestination(isPresented: $isShowingSchedule) {
                         Text("每周放送").accessibilityIdentifier("gallery-schedule")
+                            .accessibilityValue(didRefresh ? "已刷新" : "待刷新")
                             .toolbarVisibility(.visible, for: .navigationBar)
                     }
                 }
