@@ -2,24 +2,23 @@ import AniCore
 import Combine
 import SwiftUI
 
-/// 全屏播放. 播放状态 (`PlayerModel`) 由播放页持有, 这里只是同一个播放内核的全屏视图, 由播放页叠放在自身之上
-/// (不是模态页), 横竖屏旋转与全屏切换在同一次系统旋转动画中完成. 切换到竖屏回到播放页, 播放继续;
-/// 关闭则连同播放页一起关闭. 界面方向由播放页控制.
+/// 全屏播放. 播放状态 (`PlayerModel`)、锁定与界面方向由播放页持有; 两种布局共用播放内核.
+/// 切换到竖屏回到播放页继续播放, 关闭则连同播放页一起关闭.
 struct PlayerScreen: View {
     @Environment(AppServices.self) private var services
     let model: PlayerModel
-    /// 是否持有画面. 退出全屏时先变为 `false`, 淡出期间画面已交还内嵌播放器.
+    let systemControls: PlayerSystemControls
+    @Binding var isLocked: Bool
+    /// 是否持有画面.
     var ownsVideo = true
     /// 退出全屏, 回到竖屏播放页.
     let onExitFullscreen: () -> Void
     /// 关闭播放页 (而不只是退出全屏).
     let onClosePage: () -> Void
     @State private var controlsVisible = true
-    @State private var isLocked = false
     @State private var showsSourcePicker = false
     @State private var showsWatchTogether = false
     @State private var hideControlsTask: Task<Void, Never>?
-    @State private var heldLandscape = false
 
     var body: some View {
         ZStack {
@@ -39,16 +38,16 @@ struct PlayerScreen: View {
             .ignoresSafeArea()
 
             // 点按画面空白处显示或隐藏控件, 双击播放/暂停; 手势放在控件之下, 不与按钮争夺触摸
-            Color.clear
-                .contentShape(.rect)
-                .onTapGesture(count: 2) {
-                    guard !isLocked, model.phase == .playing else { return }
-                    model.togglePlayback()
-                }
-                .onTapGesture {
+            PlayerGestureSurface(
+                controls: systemControls, isEnabled: !isLocked && ownsVideo,
+                topInset: 98, bottomInset: 80, onTap: {
                     withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
                     if controlsVisible { scheduleHideControls() }
-                }
+                }, onDoubleTap: {
+                    guard !isLocked, model.phase == .playing else { return }
+                    model.togglePlayback()
+                }, onInteraction: scheduleHideControls
+            )
 
             PlayerStatusView(phase: model.phase, progress: model.progress, selected: model.selected) {
                 showsSourcePicker = true
@@ -77,9 +76,8 @@ struct PlayerScreen: View {
                 .environment(\.colorScheme, .dark)
                 .transition(.opacity)
             }
+            PlayerAdjustmentHUD(controls: systemControls)
         }
-        .statusBarHidden(true)
-        .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $showsSourcePicker) {
             SourcePickerSheet(model: model)
                 .presentationDetents([.medium, .large])
@@ -135,15 +133,6 @@ struct PlayerScreen: View {
         .task { scheduleHideControls() }
         .onChange(of: model.menuCloseCount) {
             scheduleHideControls()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            // 横持过手机之后再竖过来, 即退出全屏回到播放页; 锁定时不响应
-            guard !isLocked else { return }
-            switch UIDevice.current.orientation {
-            case .landscapeLeft, .landscapeRight: heldLandscape = true
-            case .portrait where heldLandscape: onExitFullscreen()
-            default: break
-            }
         }
     }
 

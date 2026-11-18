@@ -12,7 +12,8 @@ let package = Package(
                       "Danmaku/DanmakuOverlayView.swift", "Player/EpisodePlayerPage.swift", "Player/AirPlaySheet.swift", "Player/MPVBackend.swift",
                       "Player/MPVPlayer.swift", "Player/ManualBrowseModel.swift", "Player/ManualBrowsePage.swift",
                       "Player/PlayerControls.swift", "Player/PlayerExtras.swift", "Player/PlayerModel.swift",
-                      "Player/PlayerScreen.swift", "Player/PlayerSurface.swift", "Player/SourcePickerSheet.swift"],
+                      "Player/PlayerScreen.swift", "Player/PlayerSurface.swift", "Player/SourcePickerSheet.swift",
+                      "Player/PlayerViewport.swift", "Player/PlayerGestureSurface.swift"],
             sources: ["Player/Support", "Danmaku/DanmakuTrackAllocator.swift", "Danmaku/DanmakuRenderKey.swift"]
         ),
         .testTarget(name: "NativePlaybackSupportTests", dependencies: ["NativePlaybackSupport"], path: "Tests"),

@@ -5,8 +5,8 @@ import SwiftUI
 /// 播放页. 视频固定在顶部, 下方是「详情」与「评论」两页, 左右滑动或点按标签切换.
 /// 详情页自上而下: 标题, 播放源, 弹幕源, 剧集列表, 相关推荐. 评论页单独滚动, 底部是评论框.
 ///
-/// 视频固定在顶部, 其余内容在下方滚动. 页面持有 `PlayerModel` 与播放会话; 全屏是叠在页面之上的同一个播放内核
-/// 的另一个视图, 与界面旋转一起淡入淡出, 退出全屏后回到这里继续播放. 离开页面 (返回) 时结束播放.
+/// 视频固定在顶部, 其余内容在下方滚动. 页面持有 `PlayerModel` 与播放会话; 内嵌与全屏共用播放内核,
+/// 方向、画面所有权与触摸状态由页面统一管理. 离开页面 (返回) 时结束播放.
 /// iPhone 横过来时自动进入全屏.
 struct EpisodePlayerPage: View {
     @Environment(AppServices.self) private var services
@@ -14,7 +14,8 @@ struct EpisodePlayerPage: View {
     @State private var model: PlayerModel
     @State private var subject = SubjectModel()
     @State private var recommendations: [AniRecommendation] = []
-    @State private var showsFullscreen = false
+    @State private var presentation = PlayerPresentationState()
+    @StateObject private var systemControls = PlayerSystemControls()
     @State private var showsSourcePicker = false
     @State private var showsDanmakuSources = false
     /// 本集评论; 切换剧集时重新创建.
@@ -29,11 +30,16 @@ struct EpisodePlayerPage: View {
     init(model: PlayerModel) { _model = State(initialValue: model) }
 
     private var currentSubject: AniSubject { subject.detail?.subject ?? model.target.subject }
+    private var showsFullscreen: Bool { presentation.isFullscreen }
 
     var body: some View {
+        PlayerViewport(isFullscreen: showsFullscreen, onPortraitLayout: {
+            if UIDevice.current.userInterfaceIdiom == .phone, !presentation.isLocked { exitFullscreen() }
+        }) {
         VStack(spacing: 0) {
             InlinePlayer(
                 model: model,
+                systemControls: systemControls,
                 isCovered: showsFullscreen,
                 onBack: { dismiss() },
                 onFullscreen: enterFullscreen,
@@ -68,23 +74,21 @@ struct EpisodePlayerPage: View {
             // 两页延伸到屏幕底部; 页内的滚动内容与评论框仍按底部安全区留出空间
             .ignoresSafeArea(.container, edges: .bottom)
         }
+        } fullscreen: {
+            PlayerScreen(
+                model: model,
+                systemControls: systemControls,
+                isLocked: $presentation.isLocked,
+                ownsVideo: showsFullscreen,
+                onExitFullscreen: exitFullscreen,
+                onClosePage: closePlaybackPage
+            )
+        }
         .background(Color(.systemGroupedBackground))
+        .background { PlayerSystemVolumeBridge(controls: systemControls).frame(width: 1, height: 1).allowsHitTesting(false) }
         .background { AirPlayTransportSurface(player: model.airPlay.player).frame(width: 1, height: 1).allowsHitTesting(false) }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
-        .overlay {
-            if showsFullscreen {
-                PlayerScreen(model: model, ownsVideo: showsFullscreen, onExitFullscreen: exitFullscreen) {
-                    // 先转回竖屏, 再关闭播放页
-                    OrientationLock.restorePortrait()
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(350))
-                        dismiss()
-                    }
-                }
-                .transition(.opacity)
-            }
-        }
         .sheet(isPresented: Binding(get: { model.performanceExport != nil }, set: { if !$0 { model.performanceExport = nil } })) {
             if let url = model.performanceExport {
                 NavigationStack { VStack(spacing: 20) { Text("报告只包含设备与播放性能指标"); ShareLink(item: url) { Label("分享性能报告", systemImage: "square.and.arrow.up") } }.padding().navigationTitle("性能报告") }
@@ -115,10 +119,10 @@ struct EpisodePlayerPage: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            // 界面锁定竖屏, 设备方向通知仍会到达: 横过手机即进入全屏
-            guard UIDevice.current.userInterfaceIdiom == .phone, !showsFullscreen, model.phase == .playing,
-                  UIDevice.current.orientation.isLandscape else { return }
-            enterFullscreen()
+            handleDeviceRotation()
+        }
+        .onChange(of: presentation.isLocked) { _, locked in
+            if !locked { handleDeviceRotation() }
         }
         .onAppear { UIDevice.current.beginGeneratingDeviceOrientationNotifications() }
         .task {
@@ -140,26 +144,46 @@ struct EpisodePlayerPage: View {
         }
         .onDisappear {
             UIDevice.current.endGeneratingDeviceOrientationNotifications()
+            systemControls.restoreBrightness()
             OrientationLock.restorePortrait()
             model.pageDidDisappear()
         }
     }
 
-    /// 全屏画面淡入, 同时界面转为横屏; 两者在系统旋转动画中一起完成.
     private func enterFullscreen() {
         guard !showsFullscreen else { return }
-        withAnimation(.easeInOut(duration: 0.25)) { showsFullscreen = true }
+        presentation.enterFullscreen()
         OrientationLock.enterLandscape()
     }
 
-    /// 界面先转回竖屏, 旋转期间仍显示全屏画面, 转完后再淡出, 避免页面在横屏尺寸下闪现.
     private func exitFullscreen() {
         guard showsFullscreen else { return }
-        OrientationLock.restorePortrait()
-        Task {
-            try? await Task.sleep(for: .milliseconds(UIDevice.current.userInterfaceIdiom == .phone ? 350 : 0))
-            withAnimation(.easeInOut(duration: 0.25)) { showsFullscreen = false }
+        presentation.exitFullscreen()
+        if UIDevice.current.orientation == .portrait {
+            presentation.deviceRotated(to: .portrait, canAutoEnter: false)
         }
+        OrientationLock.restorePortrait()
+    }
+
+    private func closePlaybackPage() {
+        presentation.exitFullscreen()
+        OrientationLock.restorePortrait()
+        dismiss()
+    }
+
+    private func handleDeviceRotation() {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        let orientation: PlayerPresentationState.Orientation
+        switch UIDevice.current.orientation {
+        case .portrait: orientation = .portrait
+        case .landscapeLeft, .landscapeRight: orientation = .landscape
+        default: orientation = .unknown
+        }
+        let wasFullscreen = showsFullscreen
+        presentation.deviceRotated(to: orientation, canAutoEnter: model.phase == .playing)
+        guard wasFullscreen != showsFullscreen else { return }
+        if showsFullscreen { OrientationLock.enterLandscape() }
+        else { OrientationLock.restorePortrait() }
     }
 
     /// 标题, 播放源与弹幕源.
@@ -211,6 +235,7 @@ struct EpisodePlayerPage: View {
 /// 控件隐藏时底部保留一条细进度线.
 private struct InlinePlayer: View {
     @Bindable var model: PlayerModel
+    let systemControls: PlayerSystemControls
     /// 全屏覆盖在上方时为 `true`; 此时内嵌画面不可见, 不做画质增强.
     let isCovered: Bool
     let onBack: () -> Void
@@ -234,12 +259,10 @@ private struct InlinePlayer: View {
                 showsColor: services.settings?.danmakuShowColor ?? true,
                 currentTime: { [model] in model.playbackTime() },
             )
-            Color.clear
-                .contentShape(.rect)
-                .onTapGesture {
+            PlayerGestureSurface(controls: systemControls, isEnabled: !isCovered, onTap: {
                     withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
                     if controlsVisible { scheduleHide() }
-                }
+                }, onInteraction: scheduleHide)
             status
             if controlsVisible {
                 controls.transition(.opacity)
@@ -253,6 +276,7 @@ private struct InlinePlayer: View {
                     .padding(.leading, 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
+            PlayerAdjustmentHUD(controls: systemControls)
         }
         .aspectRatio(16 / 9, contentMode: .fit)
         .frame(maxWidth: .infinity)
